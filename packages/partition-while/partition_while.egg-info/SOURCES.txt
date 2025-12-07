@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+partition_while/__init__.py
+partition_while/core.py
+partition_while.egg-info/PKG-INFO
+partition_while.egg-info/SOURCES.txt
+partition_while.egg-info/dependency_links.txt
+partition_while.egg-info/top_level.txt

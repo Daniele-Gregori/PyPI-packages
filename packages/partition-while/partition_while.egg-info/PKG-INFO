@@ -1,0 +1,47 @@
+Metadata-Version: 2.4
+Name: partition-while
+Version: 1.0.0
+Summary: Partition a list by a condition on the sublists
+Author-email: Daniele Gregori <dangregori@gmail.com>
+License: MIT
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+
+# PartitionWhile
+
+The function **PartitionWhile** splits a collection into sublists comprised of consecutive elements which satisfy a given condition.
+
+The **first argument** of PartitionWhile is a list to be partitioned. The **second argument** is a boolean function which determines the condition which the partitions must satisfy. The resulting sublists are such that this function evaluates to True on each of them.
+
+For example:
+
+```python
+from partition_while import PartitionWhile
+
+print(PartitionWhile([1,2,3,4,5,6,7,8,9,10], lambda x: sum(x) <= 10))
+# [[1, 2, 3, 4], [5], [6], [7], [8], [9], [10]]
+```
+
+In detail, the **algorithm** of PartitionWhile implements a double loop for each element of the list and its successive elements. The first subpartition is built by starting to add the list elements after the function first evaluates to True until the function evaluates to False on some successive element. Then the second subpartition is searched in the same way, starting from this last element and the program continues until the end of the list.
+
+PartitionWhile accepts the following **option**:
+
+* **shortest** (= True): change the length of the partitions
+
+Different partitions, always satisfying the given condition, can be determined through different values for this option:
+
+* **True** : split always at the Shortest partition
+* **False** : search always the Longest partition
+* **k** : search k-1 next elements after the shortest partition
+
+For example:
+
+```python
+print(PartitionWhile([-5,8,1,2,6,-20,8,9,-5,7,3], lambda x: sum(x) <= 10))
+#[[-5, 8, 1, 2], [6, -20, 8, 9, -5, 10]]
+
+print(PartitionWhile([-5,8,1,2,6,-20,8,9,-5,7,3], lambda x: sum(x) <= 10,shortest=False))
+#[[-5, 8, 1, 2, 6, -20, 8, 9, -5], [7, 3]]
+```
+
+More details and examples are given in the **documentation** for the homonymous *resource function* on the [Wolfram Function Repository](https://resources.wolframcloud.com/FunctionRepository/resources/PartitionWhile/).

@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "partition-while"
+version = "1.0.0"
+description = "Partition a list by a condition on the sublists"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+  { name="Daniele Gregori", email="dangregori@gmail.com" }
+]
+license = { text = "MIT" }
+dependencies = []
