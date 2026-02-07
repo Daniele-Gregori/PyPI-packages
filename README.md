@@ -2,6 +2,8 @@
 
 Packages currently hosted on the Python Package Index (PyPI):
 
+* [col2dict](https://pypi.org/project/col2dict/): create nested dictionaries from columns of tabular data;
+
 * [complex-range](https://pypi.org/project/complex-range/): generate ranges of complex numbers;
 
 * [partition-while](https://pypi.org/project/partition-while/): partition a list by a condition on the sublists.
