@@ -1,6 +1,6 @@
 # complex-range
 
-[![Tests](https://github.com/Daniele-Gregori/PyPI-packages/complex-range/versions/1.0.0.post2/actions/workflows/tests.yml/badge.svg)](https://github.com/Daniele-Gregori/PyPI-packages/complex-range/versions/1.0.0.post2/actions/workflows/tests.yml)
+[![Tests](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/complex-range.yml/badge.svg)](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/complex-range.yml)
 [![PyPI version](https://badge.fury.io/py/complex-range.svg)](https://badge.fury.io/py/complex-range)
 [![Python versions](https://img.shields.io/pypi/pyversions/complex-range.svg)](https://pypi.org/project/complex-range/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
