@@ -4,16 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "col2dict"
-version = "0.8.1"
+version = "0.8.0"
 description = "Create nested dictionaries from columns of tabular data"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 authors = [
-    {name = "Daniele Gregori", email = "dangregori@gmail.com"}
-]
-maintainers = [
-    {name = "Daniele Gregori", email = "dangregori@gmail.com"}
+    { name = "Daniele Gregori" },
 ]
 keywords = ["tabular", "dataframe", "association", "groupby", "nesting", "dictionary"]
 classifiers = [
@@ -38,8 +35,6 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/col2dict"
 Documentation = "https://resources.wolframcloud.com/FunctionRepository/resources/AssociateColumns/"
-Repository = "https://github.com/Daniele-Gregori/PyPI-packages"
-Issues = "https://github.com/Daniele-Gregori/PyPI-packages/issues"
 
 [project.optional-dependencies]
 dev = [

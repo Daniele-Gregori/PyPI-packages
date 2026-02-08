@@ -1,13 +1,6 @@
 # col2dict
 
-[![Tests](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/col2dict.yml/badge.svg)](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/col2dict.yml)
-[![PyPI version](https://badge.fury.io/py/col2dict.svg)](https://badge.fury.io/py/col2dict)
-[![Python versions](https://img.shields.io/pypi/pyversions/col2dict.svg)](https://pypi.org/project/col2dict/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 Create nested dictionaries from columns of tabular data.
-
-Python translation of the **Wolfram** resource function ["AssociateColumns"](https://resources.wolframcloud.com/FunctionRepository/resources/AssociateColumns/).
 
 ## Installation
 
