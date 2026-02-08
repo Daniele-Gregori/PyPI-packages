@@ -8,6 +8,8 @@
 
 Generate ranges of complex numbers - rectangular grids and linear sequences in the complex plane.
 
+Python translation of the **Mathematica** [resource function "ComplexRange"]((https://resources.wolframcloud.com/FunctionRepository/resources/ComplexRange/)).
+
 
 ## Installation
 

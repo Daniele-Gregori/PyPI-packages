@@ -63,7 +63,7 @@ Homepage = "https://pypi.org/project/complex-range"
 Documentation = "https://resources.wolframcloud.com/FunctionRepository/resources/ComplexRange/"
 Repository = "https://github.com/Daniele-Gregori/PyPI-packages"
 Issues = "https://github.com/Daniele-Gregori/PyPI-packages/issues"
-Changelog = "https://github.com/Daniele-Gregori/PyPI-packages/blob/main/packages/complex-range/versions/1.0.0.post2/CHANGELOG.md"
+Changelog = "https://github.com/Daniele-Gregori/PyPI-packages/blob/main/packages/complex-range/CHANGELOG.md"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
