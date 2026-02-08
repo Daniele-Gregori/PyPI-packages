@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "col2dict"
+version = "0.8.1"
+description = "Create nested dictionaries from columns of tabular data"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    {name = "Daniele Gregori", email = "dangregori@gmail.com"}
+]
+maintainers = [
+    {name = "Daniele Gregori", email = "dangregori@gmail.com"}
+]
+keywords = ["tabular", "dataframe", "association", "groupby", "nesting", "dictionary"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "pandas>=1.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/col2dict"
+Documentation = "https://resources.wolframcloud.com/FunctionRepository/resources/AssociateColumns/"
+Repository = "https://github.com/Daniele-Gregori/PyPI-packages"
+Issues = "https://github.com/Daniele-Gregori/PyPI-packages/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/col2dict"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

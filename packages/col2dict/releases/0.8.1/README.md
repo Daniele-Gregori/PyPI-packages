@@ -151,8 +151,28 @@ associate_columns(df, ("Store", ["Dept", "Item"], "Brand", "Price"))
 #  'B': {('Elec', 'TV'): {'LG': 450, 'Sony': 500}}}
 ```
 
-
-## See also
-
 For full documentation and more examples, see the [original Wolfram Language resource page](https://resources.wolframcloud.com/FunctionRepository/resources/AssociateColumns/), contributed by the same author and vetted by the Wolfram Review Team.
 
+## Testing
+
+The test suite lives in `tests/test_associate_columns.py` and uses [pytest](https://docs.pytest.org/). To run it:
+
+```bash
+pip install col2dict[dev]
+pytest
+```
+
+Or from a source checkout:
+
+```bash
+git clone https://github.com/Daniele-Gregori/PyPI-packages.git
+cd PyPI-packages/packages/col2dict
+pip install -e ".[dev]"
+pytest
+```
+
+The suite includes 68 tests organised in 14 groups covering basic associations, duplicate-key merging, nested dicts up to 5 levels deep, multi-column keys and values, per-level merge functions, input-type compatibility, edge cases, and error handling.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
