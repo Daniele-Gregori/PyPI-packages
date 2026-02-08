@@ -1,3 +1,34 @@
+Metadata-Version: 2.4
+Name: algebraic-range
+Version: 0.8.2
+Summary: Generate ranges of algebraic numbers
+Author-email: Daniele Gregori <dangregori@gmail.com>
+Maintainer-email: Daniele Gregori <dangregori@gmail.com>
+License-Expression: MIT
+Project-URL: Homepage, https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/algebraic-range
+Project-URL: Documentation, https://resources.wolframcloud.com/FunctionRepository/resources/AlgebraicRange/
+Project-URL: Repository, https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/algebraic-range
+Project-URL: Issues, https://github.com/Daniele-Gregori/PyPI-packages/issues
+Keywords: algebra,algebraic-numbers,range,roots,symbolic-computation,number-theory
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: Intended Audience :: Education
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Topic :: Scientific/Engineering :: Mathematics
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: sympy>=1.12
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0; extra == "dev"
+Dynamic: license-file
+
 # algebraic-range
 
 

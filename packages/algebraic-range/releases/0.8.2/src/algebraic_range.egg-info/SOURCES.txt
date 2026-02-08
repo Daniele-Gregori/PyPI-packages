@@ -1,0 +1,11 @@
+LICENSE
+README.md
+pyproject.toml
+src/algebraic_range/__init__.py
+src/algebraic_range/core.py
+src/algebraic_range.egg-info/PKG-INFO
+src/algebraic_range.egg-info/SOURCES.txt
+src/algebraic_range.egg-info/dependency_links.txt
+src/algebraic_range.egg-info/requires.txt
+src/algebraic_range.egg-info/top_level.txt
+tests/test_algebraic_range.py
