@@ -2,6 +2,7 @@ name: col2dict tests
 
 on:
   push:
+    branches: [main]
     paths:
       - "packages/col2dict/**"
       - ".github/workflows/col2dict.yml"
