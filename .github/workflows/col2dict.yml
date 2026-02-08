@@ -4,9 +4,12 @@ on:
   push:
     paths:
       - "packages/col2dict/**"
+      - ".github/workflows/col2dict.yml"
   pull_request:
     paths:
       - "packages/col2dict/**"
+      - ".github/workflows/col2dict.yml"
+  workflow_dispatch:
 
 jobs:
   test:
