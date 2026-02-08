@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "algebraic-range"
 version = "0.8.0"
-description = "Generate ranges of algebraic numbers — a Python port of the Wolfram Language AlgebraicRange resource function."
+description = "Generate ranges of algebraic numbers"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"

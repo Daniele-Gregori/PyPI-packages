@@ -2,6 +2,8 @@
 
 Packages currently hosted on the Python Package Index (PyPI):
 
+* [algebraic-range](https://pypi.org/project/algebraic-range/): generate ranges of algebraic numbers;
+
 * [col2dict](https://pypi.org/project/col2dict/): create nested dictionaries from columns of tabular data;
 
 * [complex-range](https://pypi.org/project/complex-range/): generate ranges of complex numbers;
