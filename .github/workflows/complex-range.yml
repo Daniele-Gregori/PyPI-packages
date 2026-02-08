@@ -4,12 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'complex-range/**'
+      - 'packages/complex-range/**'
       - '.github/workflows/complex-range.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'complex-range/**'
+      - 'packages/complex-range/**'
       - '.github/workflows/complex-range.yml'
   workflow_dispatch:  # Allows manual trigger
 
@@ -24,7 +24,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: complex-range
+        working-directory: packages/complex-range
 
     steps:
     - uses: actions/checkout@v4
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: complex-range
+        working-directory: packages/complex-range
 
     steps:
     - uses: actions/checkout@v4
