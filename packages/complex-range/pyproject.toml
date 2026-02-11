@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "complex-range"
-version = "1.0.0.post2"
-description = "Generate ranges of complex numbers - rectangular grids and linear sequences in the complex plane"
+version = "1.0.1"
+description = "Generate ranges of complex numbers"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [

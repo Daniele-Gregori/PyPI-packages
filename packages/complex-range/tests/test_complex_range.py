@@ -54,7 +54,15 @@ class TestRectangularRangeWithStep:
         assert len(result) == 15
         assert result[0] == -1-1j
         assert result[-1] == 1+1j
-    
+        ### add also full result verification
+
+    def test_complex_step_explicit(self):
+        """Test rectangular range with complex step size - explicit."""
+        result = complex_range(-1-1j, 0+1j, 0.5+1j)
+        expected = [-1-1j, -1+0j, -1+1j, -0.5-1j, -0.5+0j, -0.5+1j, 0-1j, 0+0j, 0+1j]
+        assert result == expected
+
+
     def test_integer_complex_step(self):
         """Test rectangular range with integer complex step."""
         result = complex_range(0, 2+2j, 1+1j)
@@ -66,12 +74,38 @@ class TestRectangularRangeWithStep:
         result = complex_range(-1-1j, 1+1j, [0.5, 1])
         # Same as complex step test
         assert len(result) == 15
-    
+
+    def test_list_step_alternative(self):
+        """Test rectangular range with alternative list step [real_step, imag_step]."""
+        result = complex_range(-1-1j, 1+1j, [1, 0.5])
+        expected = [-1-1j,-1-0.5j, -1+0j,-1+0.5j, -1+1j, 0-1j, 0-0.5j, 0+0j, 0+0.5j, 0+1j, 1-1j, 1-0.5j, 1+0j, 1+0.5j, 1+1j]
+        assert result == expected
+     
     def test_different_real_imag_steps(self):
         """Test rectangular range with different real and imaginary steps."""
         result = complex_range(0, 4+6j, [2, 3])
         expected = [0+0j, 0+3j, 0+6j, 2+0j, 2+3j, 2+6j, 4+0j, 4+3j, 4+6j]
         assert result == expected
+
+class TestRectangularRangeFractionalStep: 
+
+    def test_fractional_steps(self):
+        """Test rectangular range with fractional steps."""
+        result = complex_range(0, 1+1j, [Fraction(1,3), Fraction(1,2)])
+        expected = [0+0j, 0+Fraction(1,2)*1j, 0+1j, Fraction(1,3)+0j, Fraction(1,3)+Fraction(1,2)*1j, Fraction(1,3)+1j, Fraction(2,3)+0j, Fraction(2,3)+Fraction(1,2)*1j, Fraction(2,3)+1j, 1+0j, 1+Fraction(1,2)*1j, 1+1j]
+        assert result == pytest.approx(expected)
+    
+    def test_fractional_steps_alternative(self):
+        """Test rectangular range with alternative fractional steps."""
+        result = complex_range(0, 1+1j, [Fraction(1,2), Fraction(1,5)])
+        expected = [0+0j, 0+Fraction(1,5)*1j, 0+Fraction(2,5)*1j, 0+Fraction(3,5)*1j, 0+Fraction(4,5)*1j, 0+1j, Fraction(1,2)+0j, Fraction(1,2)+Fraction(1,5)*1j, Fraction(1,2)+Fraction(2,5)*1j, Fraction(1,2)+Fraction(3,5)*1j, Fraction(1,2)+Fraction(4,5)*1j, Fraction(1,2)+1j, 1+0j, 1+Fraction(1,5)*1j, 1+Fraction(2,5)*1j, 1+Fraction(3,5)*1j, 1+Fraction(4,5)*1j, 1+1j]
+        assert result == pytest.approx(expected)
+
+    def test_fractional_steps_with_rest(self):
+        """Test rectangular range with fractional steps which does not divide the range."""
+        result = complex_range(-1-1j, 1+1j, [Fraction(4,7), Fraction(8,11)])
+        expected = [-1-1j, -1-Fraction(3,11)*1j, -1+Fraction(5,11)*1j, Fraction(-3,7)-1j, Fraction(-3,7)-Fraction(3,11)*1j, Fraction(-3,7)+Fraction(5,11)*1j, Fraction(1,7)-1j, Fraction(1,7)-Fraction(3,11)*1j, Fraction(1,7)+Fraction(5,11)*1j, Fraction(5,7)-1j, Fraction(5,7)-Fraction(3,11)*1j, Fraction(5,7)+Fraction(5,11)*1j]
+        assert result == pytest.approx(expected)
 
 
 class TestIncrementFirstOption:
@@ -103,24 +137,37 @@ class TestFareyRangeOption:
     
     def test_farey_range_basic(self):
         """Test basic Farey range."""
-        result = complex_range(0, 1+1j, farey_range=True)
-        expected = [0+0j, 0+1j, 1+0j, 1+1j]
-        assert result == expected
-    
+        result = complex_range(0, 1+1j, [3,3],farey_range=True)
+        expected = [
+                    0+0j, Fraction(1,3)*1j, Fraction(1,2)*1j, Fraction(2,3)*1j, 1j,
+                    Fraction(1,3)+0j, Fraction(1,3)+Fraction(1,3)*1j, Fraction(1,3)+Fraction(1,2)*1j, Fraction(1,3)+Fraction(2,3)*1j, Fraction(1,3)+1j,
+                    Fraction(1,2)+0j, Fraction(1,2)+Fraction(1,3)*1j, Fraction(1,2)+Fraction(1,2)*1j, Fraction(1,2)+Fraction(2,3)*1j, Fraction(1,2)+1j,
+                    Fraction(2,3)+0j, Fraction(2,3)+Fraction(1,3)*1j, Fraction(2,3)+Fraction(1,2)*1j, Fraction(2,3)+Fraction(2,3)*1j, Fraction(2,3)+1j,
+                    1+0j, 1+Fraction(1,3)*1j, 1+Fraction(1,2)*1j, 1+Fraction(2,3)*1j, 1+1j,
+                    ]
+
+        assert result == pytest.approx(expected)
+
     def test_farey_range_larger(self):
-        """Test Farey range with larger bounds."""
-        result = complex_range(0, 2+2j, farey_range=True)
-        expected = [0+0j, 0+1j, 0+2j, 1+0j, 1+1j, 1+2j, 2+0j, 2+1j, 2+2j]
-        assert result == expected
-    
+        """Test Farey range on larger range."""
+        result = complex_range(0, 2+3j, [4,3], farey_range=True)
+        expected = [0+0j, Fraction(1,3)*1j, Fraction(1,2)*1j, Fraction(2,3)*1j, 1j, Fraction(4,3)*1j, Fraction(3,2)*1j, Fraction(5,3)*1j, 2j, Fraction(7,3)*1j, Fraction(5,2)*1j, Fraction(8,3)*1j, 3j, Fraction(1,4)+0j, Fraction(1,4)+Fraction(1,3)*1j, Fraction(1,4)+Fraction(1,2)*1j, Fraction(1,4)+Fraction(2,3)*1j, Fraction(1,4)+1j, Fraction(1,4)+Fraction(4,3)*1j, Fraction(1,4)+Fraction(3,2)*1j, Fraction(1,4)+Fraction(5,3)*1j, Fraction(1,4)+2j, Fraction(1,4)+Fraction(7,3)*1j, Fraction(1,4)+Fraction(5,2)*1j, Fraction(1,4)+Fraction(8,3)*1j, Fraction(1,4)+3j, Fraction(1,3)+0j, Fraction(1,3)+Fraction(1,3)*1j, Fraction(1,3)+Fraction(1,2)*1j, Fraction(1,3)+Fraction(2,3)*1j, Fraction(1,3)+1j, Fraction(1,3)+Fraction(4,3)*1j, Fraction(1,3)+Fraction(3,2)*1j, Fraction(1,3)+Fraction(5,3)*1j, Fraction(1,3)+2j, Fraction(1,3)+Fraction(7,3)*1j, Fraction(1,3)+Fraction(5,2)*1j, Fraction(1,3)+Fraction(8,3)*1j, Fraction(1,3)+3j, Fraction(1,2)+0j, Fraction(1,2)+Fraction(1,3)*1j, Fraction(1,2)+Fraction(1,2)*1j, Fraction(1,2)+Fraction(2,3)*1j, Fraction(1,2)+1j, Fraction(1,2)+Fraction(4,3)*1j, Fraction(1,2)+Fraction(3,2)*1j, Fraction(1,2)+Fraction(5,3)*1j, Fraction(1,2)+2j, Fraction(1,2)+Fraction(7,3)*1j, Fraction(1,2)+Fraction(5,2)*1j, Fraction(1,2)+Fraction(8,3)*1j, Fraction(1,2)+3j, Fraction(2,3)+0j, Fraction(2,3)+Fraction(1,3)*1j, Fraction(2,3)+Fraction(1,2)*1j, Fraction(2,3)+Fraction(2,3)*1j, Fraction(2,3)+1j, Fraction(2,3)+Fraction(4,3)*1j, Fraction(2,3)+Fraction(3,2)*1j, Fraction(2,3)+Fraction(5,3)*1j, Fraction(2,3)+2j, Fraction(2,3)+Fraction(7,3)*1j, Fraction(2,3)+Fraction(5,2)*1j, Fraction(2,3)+Fraction(8,3)*1j, Fraction(2,3)+3j, Fraction(3,4)+0j, Fraction(3,4)+Fraction(1,3)*1j, Fraction(3,4)+Fraction(1,2)*1j, Fraction(3,4)+Fraction(2,3)*1j, Fraction(3,4)+1j, Fraction(3,4)+Fraction(4,3)*1j, Fraction(3,4)+Fraction(3,2)*1j, Fraction(3,4)+Fraction(5,3)*1j, Fraction(3,4)+2j, Fraction(3,4)+Fraction(7,3)*1j, Fraction(3,4)+Fraction(5,2)*1j, Fraction(3,4)+Fraction(8,3)*1j, Fraction(3,4)+3j, 1+0j, 1+Fraction(1,3)*1j, 1+Fraction(1,2)*1j, 1+Fraction(2,3)*1j, 1+1j, 1+Fraction(4,3)*1j, 1+Fraction(3,2)*1j, 1+Fraction(5,3)*1j, 1+2j, 1+Fraction(7,3)*1j, 1+Fraction(5,2)*1j, 1+Fraction(8,3)*1j, 1+3j, Fraction(5,4)+0j, Fraction(5,4)+Fraction(1,3)*1j, Fraction(5,4)+Fraction(1,2)*1j, Fraction(5,4)+Fraction(2,3)*1j, Fraction(5,4)+1j, Fraction(5,4)+Fraction(4,3)*1j, Fraction(5,4)+Fraction(3,2)*1j, Fraction(5,4)+Fraction(5,3)*1j, Fraction(5,4)+2j, Fraction(5,4)+Fraction(7,3)*1j, Fraction(5,4)+Fraction(5,2)*1j, Fraction(5,4)+Fraction(8,3)*1j, Fraction(5,4)+3j, Fraction(4,3)+0j, Fraction(4,3)+Fraction(1,3)*1j, Fraction(4,3)+Fraction(1,2)*1j, Fraction(4,3)+Fraction(2,3)*1j, Fraction(4,3)+1j, Fraction(4,3)+Fraction(4,3)*1j, Fraction(4,3)+Fraction(3,2)*1j, Fraction(4,3)+Fraction(5,3)*1j, Fraction(4,3)+2j, Fraction(4,3)+Fraction(7,3)*1j, Fraction(4,3)+Fraction(5,2)*1j, Fraction(4,3)+Fraction(8,3)*1j, Fraction(4,3)+3j, Fraction(3,2)+0j, Fraction(3,2)+Fraction(1,3)*1j, Fraction(3,2)+Fraction(1,2)*1j, Fraction(3,2)+Fraction(2,3)*1j, Fraction(3,2)+1j, Fraction(3,2)+Fraction(4,3)*1j, Fraction(3,2)+Fraction(3,2)*1j, Fraction(3,2)+Fraction(5,3)*1j, Fraction(3,2)+2j, Fraction(3,2)+Fraction(7,3)*1j, Fraction(3,2)+Fraction(5,2)*1j, Fraction(3,2)+Fraction(8,3)*1j, Fraction(3,2)+3j, Fraction(5,3)+0j, Fraction(5,3)+Fraction(1,3)*1j, Fraction(5,3)+Fraction(1,2)*1j, Fraction(5,3)+Fraction(2,3)*1j, Fraction(5,3)+1j, Fraction(5,3)+Fraction(4,3)*1j, Fraction(5,3)+Fraction(3,2)*1j, Fraction(5,3)+Fraction(5,3)*1j, Fraction(5,3)+2j, Fraction(5,3)+Fraction(7,3)*1j, Fraction(5,3)+Fraction(5,2)*1j, Fraction(5,3)+Fraction(8,3)*1j, Fraction(5,3)+3j, Fraction(7,4)+0j, Fraction(7,4)+Fraction(1,3)*1j, Fraction(7,4)+Fraction(1,2)*1j, Fraction(7,4)+Fraction(2,3)*1j, Fraction(7,4)+1j, Fraction(7,4)+Fraction(4,3)*1j, Fraction(7,4)+Fraction(3,2)*1j, Fraction(7,4)+Fraction(5,3)*1j, Fraction(7,4)+2j, Fraction(7,4)+Fraction(7,3)*1j, Fraction(7,4)+Fraction(5,2)*1j, Fraction(7,4)+Fraction(8,3)*1j, Fraction(7,4)+3j, 2+0j, 2+Fraction(1,3)*1j, 2+Fraction(1,2)*1j, 2+Fraction(2,3)*1j, 2+1j, 2+Fraction(4,3)*1j, 2+Fraction(3,2)*1j, 2+Fraction(5,3)*1j, 2+2j, 2+Fraction(7,3)*1j, 2+Fraction(5,2)*1j, 2+Fraction(8,3)*1j, 2+3j]
+        assert result == pytest.approx(expected)
+
+
+    def test_farey_range_negative(self):
+        """Test Farey range with negative bounds."""
+        result = complex_range(-2-2j, -1-1j, [3,3], farey_range=True)
+        expected = [-2-2j, -2-Fraction(5,3)*1j, -2-Fraction(3,2)*1j, -2-Fraction(4,3)*1j, -2-1j, Fraction(-5,3)-2j, Fraction(-5,3)-Fraction(5,3)*1j, Fraction(-5,3)-Fraction(3,2)*1j, Fraction(-5,3)-Fraction(4,3)*1j, Fraction(-5,3)-1j, Fraction(-3,2)-2j, Fraction(-3,2)-Fraction(5,3)*1j, Fraction(-3,2)-Fraction(3,2)*1j, Fraction(-3,2)-Fraction(4,3)*1j, Fraction(-3,2)-1j, Fraction(-4,3)-2j, Fraction(-4,3)-Fraction(5,3)*1j, Fraction(-4,3)-Fraction(3,2)*1j, Fraction(-4,3)-Fraction(4,3)*1j, Fraction(-4,3)-1j, -1-2j, -1-Fraction(5,3)*1j, -1-Fraction(3,2)*1j, -1-Fraction(4,3)*1j, -1-1j]
+        assert result == pytest.approx(expected)
+
+
     def test_farey_range_creates_finer_grid(self):
         """Test that Farey range with step creates finer grid."""
-        farey_result = complex_range(0, 4+4j, 2+2j, farey_range=True)
-        regular_result = complex_range(0, 4+4j, 2+2j, farey_range=False)
-        # Farey(2) applied to 4-unit range creates 9 points per axis (81 total)
-        # Regular step of 2 creates 3 points per axis (9 total)
-        assert len(farey_result) == 81  # 9 × 9
-        assert len(regular_result) == 9  # 3 × 3
+        farey_result = complex_range(0, 4+4j, [5,7], farey_range=True)
+        regular_result = complex_range(0, 4+4j, [Fraction(1,5), Fraction(1,7)], farey_range=False)
+        assert len(farey_result) == 2993  
+        assert len(regular_result) == 609  
         assert len(farey_result) > len(regular_result)
     
     def test_farey_range_fails_with_non_integer_step(self):
@@ -157,6 +204,7 @@ class TestNegativeStep:
         expected = [-1,-1.5-0.5j,-2-1j]
         assert result == expected
 
+    ### add more tests with other step sizes and bounds to verify correct handling of negative steps in various scenarios
 
 class TestEdgeCases:
     """Tests for edge cases."""
@@ -235,6 +283,8 @@ class TestPropertiesAndRelations:
         result = complex_range(-1-1j, 1+1j)
         assert result[-1] == 1+1j
 
+    ### add more tests to show staring corner is always preserved but ending not if the step does not divide the difference between bounds
+
 
 class TestCombinedOptions:
     """Tests for combined options."""
@@ -262,8 +312,8 @@ class TestSpecialValues:
         assert result == expected
 
 
-class TestLinearRangeSingleElement:
-    """Tests for linear range with single element list."""
+class TestLinearRangeSingleBound:
+    """Tests for linear range with single bound list."""
     
     def test_linear_single_element_basic(self):
         """Test linear range from 0 to z."""
@@ -289,7 +339,7 @@ class TestLinearRangeSingleElement:
         assert result == [0+0j]
 
 
-class TestLinearRangeTwoElement:
+class TestLinearRangeTwoBounds:
     """Tests for linear range with two element list."""
     
     def test_linear_two_element_from_origin(self):
@@ -331,12 +381,19 @@ class TestLinearRangeWithStep:
         expected = [0+0j, 2+2j, 4+4j]
         assert result == expected
     
-    def test_linear_with_step_fractional_step(self):
-        """Test linear range with fractional step."""
+    def test_linear_with_step_float_step(self):
+        """Test linear range with float step."""
         result = complex_range([0, 1+1j], [0.5, 0.5])
         expected = [0+0j, 0.5+0.5j, 1+1j]
         assert result == expected
-    
+
+    def test_linear_with_step_fractional_step(self):
+        """Test linear range with fractional step."""
+        result = complex_range([0, 1+1j], [Fraction(1,3), Fraction(2,7)])
+        expected = [0+0j, Fraction(1,3)+Fraction(2,7)*1j, Fraction(2,3)+Fraction(4,7)*1j,1+Fraction(6,7)*1j]
+        assert result == pytest.approx(expected)
+
+
     def test_linear_with_complex_step(self):
         """Test linear range with complex step."""
         result = complex_range([0, 4+4j], 2+2j)
@@ -445,80 +502,32 @@ class TestLinearFareyRange:
     Expected values verified against Wolfram ResourceFunction["ComplexRange"].
     """
 
-    def test_linear_farey_order_1(self):
-        """Test linear Farey range with order 1.
+    def test_linear_farey_order_3(self):
+        result = complex_range([0+0j, 1+1j], [3, 3], farey_range=True)
+        expected = [0+0j, Fraction(1,3)+Fraction(1,3)*1j, Fraction(1,2)+Fraction(1,2)*1j, Fraction(2,3)+Fraction(2,3)*1j, 1+1j]
+        assert result == pytest.approx(expected)
 
-        Wolfram: ResourceFunction["ComplexRange"][{0, 1+I}, {1,1}, "FareyRange" -> True]
-        Result: {0, 1 + I}
-        """
-        result = complex_range([0, 1+1j], [1, 1], farey_range=True)
-        expected = [0+0j, 1+1j]
-        assert result == expected
+    def test_linear_farey_larger(self):
 
-    def test_linear_farey_order_1_larger_range(self):
-        """Test linear Farey range with order 1 on larger range.
+        result = complex_range([0, 3+3j], [5, 7], farey_range=True)
+        assert len(result) == 31
+        assert result[0] == 0+0j
+        assert result[-1] == pytest.approx(3+Fraction(5,3)*1j)
+        
 
-        Wolfram: ResourceFunction["ComplexRange"][{0, 2+2I}, {1,1}, "FareyRange" -> True]
-        Result: {0, 1 + I, 2 + 2*I}
-        """
-        result = complex_range([0, 2+2j], [1, 1], farey_range=True)
-        expected = [0+0j, 1+1j, 2+2j]
-        assert result == expected
-
-    def test_linear_farey_order_2_basic(self):
-        """Test linear Farey range with order 2.
-
-        Wolfram: ResourceFunction["ComplexRange"][{0, 2+2I}, {2,2}, "FareyRange" -> True]
-        Result: {0, 1/2 + I/2, 1 + I, 3/2 + (3*I)/2, 2 + 2*I}
-        """
-        result = complex_range([0, 2+2j], [2, 2], farey_range=True)
-        expected = [0+0j, 0.5+0.5j, 1+1j, 1.5+1.5j, 2+2j]
-        assert result == expected
-
-    def test_linear_farey_order_2_larger_range(self):
-        """Test linear Farey range with order 2 on larger range.
-
-        Wolfram: ResourceFunction["ComplexRange"][{0, 4+4I}, {2,2}, "FareyRange" -> True]
-        Result: {0, 1/2 + I/2, 1 + I, 3/2 + (3*I)/2, 2 + 2*I, 5/2 + (5*I)/2, 3 + 3*I, 7/2 + (7*I)/2, 4 + 4*I}
-        """
-        result = complex_range([0, 4+4j], [2, 2], farey_range=True)
-        expected = [0+0j, 0.5+0.5j, 1+1j, 1.5+1.5j, 2+2j, 2.5+2.5j, 3+3j, 3.5+3.5j, 4+4j]
-        assert result == expected
 
     def test_linear_farey_non_zero_start(self):
-        """Test linear Farey range with non-zero start.
-
-        Wolfram: ResourceFunction["ComplexRange"][{1+I, 3+3I}, {2,2}, "FareyRange" -> True]
-        Result: {1 + I, 3/2 + (3*I)/2, 2 + 2*I, 5/2 + (5*I)/2, 3 + 3*I}
-        """
-        result = complex_range([1+1j, 3+3j], [2, 2], farey_range=True)
-        expected = [1+1j, 1.5+1.5j, 2+2j, 2.5+2.5j, 3+3j]
-        assert result == expected
+        result = complex_range([-1+0j, 2+1j], [3, 3], farey_range=True)
+        expected = [-1+0j, -Fraction(2,3)+Fraction(1,3)*1j, -Fraction(1,2)+Fraction(1,2)*1j, Fraction(-1,3)+Fraction(2,3)*1j, 0+1j]
+        assert result == pytest.approx(expected)
+                    
 
     def test_linear_farey_negative_to_positive(self):
-        """Test linear Farey range from negative to positive.
+        result = complex_range([-1-1j, 1+1j], [3, 3], farey_range=True)
+        expected = [-1-1j, Fraction(-2,3)-Fraction(2,3)*1j, Fraction(-1,2)-Fraction(1,2)*1j, Fraction(-1,3)-Fraction(1,3)*1j, 0+0j, Fraction(1,3)+Fraction(1,3)*1j, Fraction(1,2)+Fraction(1,2)*1j, Fraction(2,3)+Fraction(2,3)*1j, 1+1j]
+        assert result == pytest.approx(expected)
+        
 
-        Wolfram: ResourceFunction["ComplexRange"][{-1-I, 1+I}, {2,2}, "FareyRange" -> True]
-        Result: {-1 - I, -1/2 - I/2, 0, 1/2 + I/2, 1 + I}
-        """
-        result = complex_range([-1-1j, 1+1j], [2, 2], farey_range=True)
-        expected = [-1-1j, -0.5-0.5j, 0+0j, 0.5+0.5j, 1+1j]
-        assert result == expected
-
-    def test_linear_farey_order_3(self):
-        """Test linear Farey range with order 3.
-
-        Wolfram: ResourceFunction["ComplexRange"][{0, 3+3I}, {3,3}, "FareyRange" -> True]
-        Result: {0, 1/3 + I/3, 1/2 + I/2, 2/3 + (2*I)/3, 1 + I, ...}
-        """
-        result = complex_range([0, 3+3j], [3, 3], farey_range=True)
-        # Should have 13 elements (Farey(3) has 5 elements, applied to 3 unit intervals)
-        assert len(result) == 13
-        assert result[0] == 0+0j
-        assert result[-1] == 3+3j
-        # Check some intermediate values (approximately, due to float conversion)
-        assert any(abs(z - (1+1j)) < 1e-10 for z in result)
-        assert any(abs(z - (2+2j)) < 1e-10 for z in result)
 
     def test_linear_farey_fails_with_non_integer_step(self):
         """Test that linear Farey range raises error for non-integer step.
@@ -531,12 +540,11 @@ class TestLinearFareyRange:
 
     def test_linear_farey_creates_more_points_than_regular(self):
         """Test that linear Farey range creates more points than regular step."""
-        farey_result = complex_range([0, 4+4j], [2, 2], farey_range=True)
-        regular_result = complex_range([0, 4+4j], [2, 2], farey_range=False)
-        # Farey creates 9 points, regular creates 3
+        farey_result = complex_range([0, 4+4j], [3, 3], farey_range=True)
+        regular_result = complex_range([0, 4+4j], [Fraction(1,3), Fraction(1,3)], farey_range=False)
         assert len(farey_result) > len(regular_result)
-        assert len(farey_result) == 9
-        assert len(regular_result) == 3
+        assert len(farey_result) == 17
+        assert len(regular_result) == 13
 
     def test_linear_farey_with_complex_step(self):
         """Test linear Farey range with complex step notation."""

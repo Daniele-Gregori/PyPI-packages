@@ -8,7 +8,7 @@
 
 Generate ranges of algebraic numbers.
 
-Python port of the **Wolfram** [resource function "AlgebraicRange"](https://resources.wolframcloud.com/FunctionRepository/resources/AlgebraicRange/) resource function.
+Python port of the **Wolfram** [resource function "AlgebraicRange"](https://resources.wolframcloud.com/FunctionRepository/resources/AlgebraicRange/).
 
 Requires [SymPy](https://www.sympy.org/) ≥ 1.12.
 
