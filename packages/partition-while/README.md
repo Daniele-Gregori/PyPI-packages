@@ -1,5 +1,10 @@
 # PartitionWhile
 
+[![Downloads](https://pepy.tech/badge/partition-while)](https://pepy.tech/project/partition-while)
+
+
+
+
 The Python function **PartitionWhile** splits a collection into sublists comprised of consecutive elements which satisfy a given condition.
 
 The **first argument** of PartitionWhile is a list to be partitioned. The **second argument** is a boolean function which determines the condition which the partitions must satisfy. The resulting sublists are such that this function evaluates to True on each of them.

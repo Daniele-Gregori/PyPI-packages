@@ -14,99 +14,19 @@ from numbers import Number
 from .farey import farey_sequence
 
 
+# Utilities and internal functions
+
+
 class ComplexRangeError(Exception):
     """Exception raised for ComplexRange-specific errors."""
     pass
-
-
-def _farey_range_values(start: float, end: float, order: int) -> List[Union[int, float, Fraction]]:
-    """
-    Generate values for a Farey range.
-    
-    The Farey sequence of the given order is applied to each unit interval
-    in the range, and all points are combined.
-    
-    Parameters
-    ----------
-    start : float
-        Start of the range.
-    end : float
-        End of the range.
-    order : int
-        Order of the Farey sequence to use.
-        
-    Returns
-    -------
-    List
-        Sorted list of values in the range.
-    """
-    if order < 1:
-        raise ComplexRangeError(f"Farey order must be positive, got {order}")
-    
-    # Get the Farey sequence for this order
-    farey = farey_sequence(order)
-    
-    # Determine the number of unit intervals
-    span = end - start
-    num_units = int(span)
-    
-    # If span is not an integer, we need to handle fractional part
-    if span != num_units:
-        # For non-integer spans, just scale the Farey sequence
-        result = sorted(set(float(start + f * span) for f in farey))
-        return result
-    
-    # For integer spans, apply Farey to each unit interval
-    all_values = set()
-    
-    for unit in range(num_units):
-        unit_start = start + unit
-        for f in farey:
-            all_values.add(unit_start + float(f))
-    
-    # Convert to sorted list
-    result = sorted(all_values)
-    
-    # Try to keep as fractions if possible
-    if all(isinstance(x, int) or (isinstance(x, float) and x == int(x)) for x in [start, end]):
-        frac_result = []
-        for val in result:
-            try:
-                frac = Fraction(val).limit_denominator(1000)
-                if abs(float(frac) - val) < 1e-10:
-                    frac_result.append(frac)
-                else:
-                    frac_result.append(val)
-            except (ValueError, OverflowError):
-                frac_result.append(val)
-        return frac_result
-    
-    return result
-
-
-def _to_number(z: Union[complex, float, int, Fraction]) -> Union[complex, Fraction, int, float]:
-    """Convert input to appropriate numeric type, preserving exactness where possible."""
-    if isinstance(z, (int, Fraction)):
-        return z
-    if isinstance(z, float):
-        # Try to convert to Fraction if it's a "nice" number
-        try:
-            frac = Fraction(z).limit_denominator(10000)
-            if abs(float(frac) - z) < 1e-10:
-                return frac
-        except (ValueError, OverflowError):
-            pass
-        return z
-    if isinstance(z, complex):
-        return z
-    return z
 
 
 def _arange_inclusive(start: Union[int, float, Fraction], 
                       end: Union[int, float, Fraction], 
                       step: Union[int, float, Fraction]) -> List[Union[int, float, Fraction]]:
     """
-    Generate a range from start to end (inclusive) with given step.
+    Generate a range from start to end (inclusive, as in Wolfram Language) with given step.
     
     Similar to numpy.arange but includes the endpoint if it's exactly reachable.
     Handles both positive and negative steps.
@@ -152,6 +72,174 @@ def _arange_inclusive(start: Union[int, float, Fraction],
             
     return result
 
+
+def _farey_range_values(start: float, end: float, order: int) -> List[Union[int, float, Fraction]]:
+    """
+    Generate values for a Farey range.
+    
+    Should be included as package in later versions
+    """
+    
+    if order < 1:
+        raise ComplexRangeError(f"Farey order must be positive, got {order}")
+    
+    # Get the Farey sequence for this order
+    farey = farey_sequence(order)
+    
+    # Determine the number of unit intervals
+    span = end - start
+    num_units = int(span)
+    
+    """to check better this case"""
+    # If span is not an integer, we need to handle fractional part
+    if span != num_units:
+        # For non-integer spans, just scale the Farey sequence
+        result = sorted(set(float(start + f * span) for f in farey))
+        return result
+    
+    # For integer spans, apply Farey to each unit interval
+    all_values = set()
+    
+    """ok but what if the step is negative?"""
+    for unit in range(num_units):
+        unit_start = start + unit
+        for f in farey:
+            all_values.add(unit_start + float(f))
+    
+    # Convert to sorted list
+    result = sorted(all_values)
+    
+    # Try to keep as fractions if possible
+    if all(isinstance(x, int) or (isinstance(x, float) and x == int(x)) for x in [start, end]):
+        frac_result = []
+        for val in result:
+            try:
+                frac = Fraction(val).limit_denominator(1000000) # increased from 1000
+                if abs(float(frac) - val) < 1e-14: # decreased from 1e-10
+                    frac_result.append(frac)
+                else:
+                    frac_result.append(val)
+            except (ValueError, OverflowError):
+                frac_result.append(val)
+        return frac_result
+    
+    return result
+
+
+
+# this code is used only in dev.py
+def _to_number(z: Union[complex, float, int, Fraction]) -> Union[complex, Fraction, int, float]:
+
+    """Convert input to appropriate numeric type, preserving exactness where possible."""
+
+    if isinstance(z, (int, Fraction)):
+        return z
+    if isinstance(z, float):
+        # Try to convert to Fraction if it's a "nice" number
+        try:
+            frac = Fraction(z).limit_denominator(1000000)
+            if abs(float(frac) - z) < 1e-14:
+                return frac
+        except (ValueError, OverflowError):
+            pass
+        return z
+    if isinstance(z, complex):
+        return z
+    return z
+
+
+
+def _make_complex(re: Union[int, float, Fraction], im: Union[int, float, Fraction]) -> complex:
+    """Create a complex number from real and imaginary parts."""
+    # Convert Fractions to float for complex number creation
+    re_val = float(re) if isinstance(re, Fraction) else re
+    im_val = float(im) if isinstance(im, Fraction) else im
+    
+    # Simplify representation
+    if im_val == 0:
+        if isinstance(re_val, float) and re_val.is_integer():
+            return complex(int(re_val), 0)
+        return complex(re_val, 0)
+    if re_val == 0:
+        if isinstance(im_val, float) and im_val.is_integer():
+            return complex(0, int(im_val))
+        return complex(0, im_val)
+    
+    return complex(re_val, im_val)
+
+
+
+# Main range generation subfunctions
+
+
+def _handle_linear_range(
+    z_spec: Union[List, Tuple],
+    step_or_none: Optional[Union[complex, float, int, List, Tuple]],
+    step: Optional[Union[complex, float, int, List, Tuple]],
+    farey_range: bool = False
+) -> List[complex]:
+    """Handle linear range cases."""
+    # Parse the specification
+    if len(z_spec) == 1:
+        # {z} - linear from 0 to z
+        z_start = complex(0, 0)
+        z_end = complex(z_spec[0])
+    elif len(z_spec) == 2:
+        # {z1, z2} - linear from z1 to z2
+        z_start = complex(z_spec[0])
+        z_end = complex(z_spec[1])
+    else:
+        raise ComplexRangeError(f"Linear range specification must have 1 or 2 elements, got {len(z_spec)}")
+
+    # Determine step (step_or_none is actually the step for linear ranges)
+    if step_or_none is not None:
+        if isinstance(step_or_none, (list, tuple)):
+            linear_step = tuple(step_or_none)
+        elif isinstance(step_or_none, complex):
+            # Pass complex step directly - _linear_range will handle it
+            linear_step = step_or_none
+        else:
+            raise ComplexRangeError(f"Invalid step specification: {step_or_none}")
+    else:
+        linear_step = None
+
+    return _linear_range(z_start, z_end, linear_step, farey_range)
+
+
+def _handle_rectangular_range(
+    z1: Union[complex, float, int],
+    z2: Optional[Union[complex, float, int]],
+    step: Optional[Union[complex, float, int, List, Tuple]],
+    increment_first: Literal['im', 're'],
+    farey_range: bool
+) -> List[complex]:
+    """Handle rectangular range cases."""
+    # Convert to complex
+    z1_complex = complex(z1)
+    
+    if z2 is None:
+        # Single argument: range from 0 to z1
+        z2_complex = z1_complex
+        z1_complex = complex(0, 0)
+    else:
+        z2_complex = complex(z2)
+    
+    # Handle step
+    if step is not None:
+        if isinstance(step, (list, tuple)):
+            step_tuple = tuple(step)
+        else:
+            step_val = complex(step) if not isinstance(step, complex) else step
+            step_tuple = step_val
+    else:
+        step_tuple = None
+    
+    return _rectangular_range(z1_complex, z2_complex, step_tuple, increment_first, farey_range)
+
+
+
+
+# Main functions
 
 def _rectangular_range(
     z1: complex,
@@ -251,23 +339,6 @@ def _rectangular_range(
     return result
 
 
-def _make_complex(re: Union[int, float, Fraction], im: Union[int, float, Fraction]) -> complex:
-    """Create a complex number from real and imaginary parts."""
-    # Convert Fractions to float for complex number creation
-    re_val = float(re) if isinstance(re, Fraction) else re
-    im_val = float(im) if isinstance(im, Fraction) else im
-    
-    # Simplify representation
-    if im_val == 0:
-        if isinstance(re_val, float) and re_val.is_integer():
-            return complex(int(re_val), 0)
-        return complex(re_val, 0)
-    if re_val == 0:
-        if isinstance(im_val, float) and im_val.is_integer():
-            return complex(0, int(im_val))
-        return complex(0, im_val)
-    
-    return complex(re_val, im_val)
 
 
 def _linear_range(
@@ -349,6 +420,9 @@ def _linear_range(
     return [_make_complex(re_values[i], im_values[i]) for i in range(n)]
 
 
+# Final main function
+
+
 def complex_range(
     z1: Union[complex, float, int, List, Tuple],
     z2: Optional[Union[complex, float, int]] = None,
@@ -363,96 +437,6 @@ def complex_range(
     This function can generate either rectangular (grid) or linear (diagonal)
     ranges of complex numbers in the complex plane.
     
-    Parameters
-    ----------
-    z1 : complex, number, or list
-        For rectangular range: the first corner (or single endpoint if z2 is None).
-        For linear range: a list [z] or [z_start, z_end] specifying endpoints.
-    z2 : complex or number, optional
-        For rectangular range: the second corner.
-    step : complex, number, list, or tuple, optional
-        Step size(s) for the range.
-        - For rectangular range with complex step: real part = real step, imag = imag step
-        - For rectangular/linear range with list/tuple: [real_step, imag_step]
-        Default step is 1+1j for rectangular, (1, 1) for linear.
-    increment_first : {'im', 're'}, keyword-only
-        For rectangular range: which component to increment first.
-        'im' (default): increment imaginary first (column-major order)
-        're': increment real first (row-major order)
-    farey_range : bool, keyword-only
-        If True, use Farey sequence to generate intermediate points.
-        Only valid for rectangular ranges with integer step.
-        Creates a finer grid based on the Farey sequence of the given order.
-        
-    Returns
-    -------
-    List[complex]
-        A list of complex numbers.
-        
-    Raises
-    ------
-    ComplexRangeError
-        If farey_range is True but step is non-integer.
-        
-    Examples
-    --------
-    Rectangular range from origin:
-    
-    >>> complex_range(2+2j)
-    [(0+0j), 1j, 2j, (1+0j), (1+1j), (1+2j), (2+0j), (2+1j), (2+2j)]
-    
-    Rectangular range between two points:
-    
-    >>> complex_range(1+1j, 2+2j)
-    [(1+1j), (1+2j), (2+1j), (2+2j)]
-    
-    Rectangular range with step:
-    
-    >>> complex_range(0, 2+2j, 0.5+0.5j)
-    [(0+0j), 0.5j, 1j, 1.5j, 2j, (0.5+0j), ...]
-    
-    Linear range (points on a diagonal):
-    
-    >>> complex_range([0, 2+2j])
-    [(0+0j), (1+1j), (2+2j)]
-    
-    Linear range with step:
-    
-    >>> complex_range([0, 4+4j], (2, 2))
-    [(0+0j), (2+2j), (4+4j)]
-    
-    Linear range with complex step:
-    
-    >>> complex_range([0, 4+4j], 2+2j)
-    [(0+0j), (2+2j), (4+4j)]
-    
-    Descending linear range:
-    
-    >>> complex_range([2+2j, 0], -1-1j)
-    [(2+2j), (1+1j), 0j]
-    
-    Rectangular range with Farey subdivision:
-    
-    >>> complex_range(0, 1+1j, 2, farey_range=True)
-    [(0+0j), 0.5j, 1j, (0.5+0j), (0.5+0.5j), (0.5+1j), (1+0j), (1+0.5j), (1+1j)]
-    
-    See Also
-    --------
-    farey_sequence : Generate Farey sequence of a given order.
-    
-    Notes
-    -----
-    The function distinguishes between rectangular and linear ranges based on
-    the type of the first argument:
-    
-    - If z1 is a list or tuple, a linear range is generated
-    - Otherwise, a rectangular range is generated
-    
-    For rectangular ranges, the default iteration order is "imaginary first",
-    meaning for each real value, all imaginary values are enumerated before
-    moving to the next real value.
-    
-    Author: Daniele Gregori
     """
     # Check if this is a linear range (first argument is a list/tuple)
     if isinstance(z1, (list, tuple)):
@@ -462,70 +446,8 @@ def complex_range(
     return _handle_rectangular_range(z1, z2, step, increment_first, farey_range)
 
 
-def _handle_linear_range(
-    z_spec: Union[List, Tuple],
-    step_or_none: Optional[Union[complex, float, int, List, Tuple]],
-    step: Optional[Union[complex, float, int, List, Tuple]],
-    farey_range: bool = False
-) -> List[complex]:
-    """Handle linear range cases."""
-    # Parse the specification
-    if len(z_spec) == 1:
-        # {z} - linear from 0 to z
-        z_start = complex(0, 0)
-        z_end = complex(z_spec[0])
-    elif len(z_spec) == 2:
-        # {z1, z2} - linear from z1 to z2
-        z_start = complex(z_spec[0])
-        z_end = complex(z_spec[1])
-    else:
-        raise ComplexRangeError(f"Linear range specification must have 1 or 2 elements, got {len(z_spec)}")
 
-    # Determine step (step_or_none is actually the step for linear ranges)
-    if step_or_none is not None:
-        if isinstance(step_or_none, (list, tuple)):
-            linear_step = tuple(step_or_none)
-        elif isinstance(step_or_none, complex):
-            # Pass complex step directly - _linear_range will handle it
-            linear_step = step_or_none
-        else:
-            raise ComplexRangeError(f"Invalid step specification: {step_or_none}")
-    else:
-        linear_step = None
-
-    return _linear_range(z_start, z_end, linear_step, farey_range)
-
-
-def _handle_rectangular_range(
-    z1: Union[complex, float, int],
-    z2: Optional[Union[complex, float, int]],
-    step: Optional[Union[complex, float, int, List, Tuple]],
-    increment_first: Literal['im', 're'],
-    farey_range: bool
-) -> List[complex]:
-    """Handle rectangular range cases."""
-    # Convert to complex
-    z1_complex = complex(z1)
-    
-    if z2 is None:
-        # Single argument: range from 0 to z1
-        z2_complex = z1_complex
-        z1_complex = complex(0, 0)
-    else:
-        z2_complex = complex(z2)
-    
-    # Handle step
-    if step is not None:
-        if isinstance(step, (list, tuple)):
-            step_tuple = tuple(step)
-        else:
-            step_val = complex(step) if not isinstance(step, complex) else step
-            step_tuple = step_val
-    else:
-        step_tuple = None
-    
-    return _rectangular_range(z1_complex, z2_complex, step_tuple, increment_first, farey_range)
-
+# Future developments
 
 # Convenience function for iterator version
 def complex_range_iter(
