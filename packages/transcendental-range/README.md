@@ -1,5 +1,10 @@
 # transcendental-range
 
+[![Tests](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/transcendental-range.yml/badge.svg)](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/transcendental-range.yml)
+[![PyPI version](https://badge.fury.io/py/transcendental-range.svg)](https://badge.fury.io/py/transcendental-range)
+[![Python](https://img.shields.io/pypi/pyversions/transcendental-range.svg)](https://pypi.org/project/transcendental-range/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Generate ranges of transcendental numbers.
 
 Python port of the Wolfram Language resource function [TranscendentalRange](https://resources.wolframcloud.com/FunctionRepository/resources/TranscendentalRange).

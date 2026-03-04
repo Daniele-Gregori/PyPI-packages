@@ -4,8 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "transcendental-range"
-version = "0.8.0"
+version = "0.8.1"
 description = "Generate transcendental numbers within a range using algebraic generators and transcendental functions."
+readme = "README.md"
 requires-python = ">= 3.10"
 license = "MIT"
 authors = [
@@ -25,6 +26,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest >= 7.0"]
+
+[project.urls]
+Homepage = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/transcendental-range"
+Documentation = "https://resources.wolframcloud.com/FunctionRepository/resources/TranscendentalRange/"
+Repository = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/transcendental-range"
+Issues = "https://github.com/Daniele-Gregori/PyPI-packages/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
