@@ -79,8 +79,8 @@ The output can be restricted by setting a threshold for the complexity of the nu
 ```python
 from transcendental_range import transcendental_range
 
-transcendental_range(5)
-# [exp(1), 2*exp(1)/3, exp(2)/3, 3*exp(1)/4, exp(1)/2, ...]
+transcendental_range(10)
+# [E, 2*E, exp(2), 3*E]
 ```
 
 Generate transcendental numbers using the logarithm:
