@@ -11,7 +11,7 @@ on:
 
 defaults:
   run:
-    working-directory: packages/transcendental-range/releases/0.8.0/transcendental-range
+    working-directory: packages/transcendental-range/
 
 jobs:
   test:
