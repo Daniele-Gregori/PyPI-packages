@@ -1,6 +1,6 @@
 # transform-tabular
 
-[![Tests](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/tests.yml/badge.svg)](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/tests.yml)
+[![Tests](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/transform-tabular.yml/badge.svg)](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/transform-tabular.yml)
 [![PyPI version](https://img.shields.io/pypi/v/transform-tabular)](https://pypi.org/project/transform-tabular/)
 [![Python versions](https://img.shields.io/pypi/pyversions/transform-tabular)](https://pypi.org/project/transform-tabular/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -91,31 +91,35 @@ transform_tabular(df, lambda x: x - cv_mean)
 
 `ColumnwiseThread(func)` wraps a function `func(column_as_list) -> list_of_same_length`. The transformation is pre-computed per column and each row receives its corresponding element from the resulting list.
 
-Sort each column independently:
+Compute a cumulative sum for each column independently:
 
 ```python
-df = pd.DataFrame({"a": [3, 1, 2], "b": [6, 4, 5]})
-ct_sorted = ColumnwiseThread(lambda col: sorted(col))
-transform_tabular(df, lambda x: ct_sorted)
-#    a  b
-# 0  1  4
-# 1  2  5
-# 2  3  6
+from itertools import accumulate
+
+df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+ct_acc = ColumnwiseThread(lambda col: list(accumulate(col)))
+transform_tabular(df, lambda x: ct_acc)
+#    a   b
+# 0  1   4
+# 1  3   9
+# 2  6  15
 ```
 
 ### Combined ColumnwiseValue and ColumnwiseThread
 
-Both markers can be used together. For example, sort each column and then add its mean:
+Both markers can be used together. For example, compute the cumulative sum of each column and then subtract its mean:
 
 ```python
-df = pd.DataFrame({"a": [3, 1, 2], "b": [60, 40, 50]})
-ct_sorted = ColumnwiseThread(lambda col: sorted(col))
+from itertools import accumulate
+
+df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+ct_acc = ColumnwiseThread(lambda col: list(accumulate(col)))
 cv_mean = ColumnwiseValue(lambda col: sum(col) / len(col))
-transform_tabular(df, lambda x: ct_sorted + cv_mean)
+transform_tabular(df, lambda x: ct_acc - cv_mean)
 #      a     b
-# 0  3.0  90.0
-# 1  4.0 100.0
-# 2  5.0 110.0
+# 0 -1.0  -1.0
+# 1  1.0   4.0
+# 2  4.0  10.0
 ```
 
 ### Operator form
@@ -132,7 +136,7 @@ double_all(pd.DataFrame({"a": [1, 2], "b": [3, 4]}))
 
 ## See also
 
-For further details and examples, see the documentation for the original Wolfram Language resource function: [TransformTabular](https://resources.wolframcloud.com/FunctionRepository/resources/TransformTabular/).
+For further examples and details, see the documentation for the original Wolfram Language resource function: [TransformTabular](https://resources.wolframcloud.com/FunctionRepository/resources/TransformTabular/).
 
 ## Author
 
