@@ -10,7 +10,7 @@ Packages currently hosted on the Python Package Index (PyPI):
 
 * [partition-while](https://pypi.org/project/partition-while/): partition a list by a condition on the sublists;
 
-* [transform-tabular](https://pypi.org/project/transform-tabular/): apply a single function element-wise and column-wise across an entire DataFrame;
+* [transform-tabular](https://pypi.org/project/transform-tabular/): apply a single function across an entire DataFrame;
 
 * [transcendental-range](https://pypi.org/project/transcendental-range/): generate ranges of transcendental numbers.
 
