@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "transform-tabular"
+version = "0.8.0"
+description = "Transform columns of pandas DataFrames with element-wise, column-aggregate, and column-threaded operations"
+authors = [{name = "Daniele Gregori"}]
+requires-python = ">=3.9"
+license = {text = "MIT"}
+readme = "README.md"
+dependencies = ["pandas>=1.3.0"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.urls]
+Homepage = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/transform-tabular"
+Repository = "https://github.com/Daniele-Gregori/PyPI-packages"
+Issues = "https://github.com/Daniele-Gregori/PyPI-packages/issues"
+Documentation = "https://resources.wolframcloud.com/FunctionRepository/resources/TransformTabular/"
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
