@@ -5,10 +5,12 @@ on:
     branches: [main]
     paths:
       - "packages/transform-tabular/**"
+      - ".github/workflows/transform-tabular.yml"
   pull_request:
-    branches: [main]
     paths:
       - "packages/transform-tabular/**"
+      - ".github/workflows/transform-tabular.yml"
+  workflow_dispatch:
 
 defaults:
   run:
