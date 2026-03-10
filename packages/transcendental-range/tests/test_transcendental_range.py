@@ -489,6 +489,76 @@ class TestFareyRange:
         for a, b in zip(v1, v2):
             assert abs(a - b) < 1e-10
 
+    # -- WL FareyRange step-convention tests ----------------------------------
+
+    def test_farey_negative_step_same_elements(self):
+        """Negative integer step (with swapped endpoints) produces same set."""
+        fwd = transcendental_range(1, 5, Rational(4), farey_range=True)
+        rev = transcendental_range(5, 1, Rational(-4), farey_range=True)
+        v_fwd = sorted(_nv(e) for e in fwd)
+        v_rev = sorted(_nv(e) for e in rev)
+        assert len(v_fwd) == len(v_rev)
+        for a, b in zip(v_fwd, v_rev):
+            assert abs(a - b) < 1e-10
+
+    def test_farey_fraction_step_equals_integer(self):
+        """Fraction(1, n) step should use Farey order n, same as integer n."""
+        r_int = transcendental_range(1, 5, Rational(4), farey_range=True)
+        r_frac = transcendental_range(1, 5, Rational(1, 4), farey_range=True)
+        v_int = sorted(_nv(e) for e in r_int)
+        v_frac = sorted(_nv(e) for e in r_frac)
+        assert len(v_int) == len(v_frac)
+        for a, b in zip(v_int, v_frac):
+            assert abs(a - b) < 1e-10
+
+    def test_farey_neg_fraction_step_reversed(self):
+        """Fraction(-1, n) with swapped endpoints produces same set."""
+        r_frac = transcendental_range(1, 5, Rational(1, 4), farey_range=True)
+        r_neg = transcendental_range(5, 1, Rational(-1, 4), farey_range=True)
+        v_frac = sorted(_nv(e) for e in r_frac)
+        v_neg = sorted(_nv(e) for e in r_neg)
+        assert len(v_frac) == len(v_neg)
+        for a, b in zip(v_frac, v_neg):
+            assert abs(a - b) < 1e-10
+
+    def test_farey_zero_step_returns_empty(self):
+        """Zero step returns empty (caught by main function before farey logic)."""
+        r = transcendental_range(1, 5, Rational(0), farey_range=True)
+        assert len(r) == 0
+
+    def test_farey_non_unit_fraction_raises(self):
+        """Non-unit fraction step (e.g. 2/3) should raise ValueError."""
+        with pytest.raises(ValueError):
+            transcendental_range(1, 5, Rational(2, 3), farey_range=True)
+
+    def test_farey_large_order_nonempty(self):
+        """Farey order > 3 produces non-trivial results."""
+        r = transcendental_range(1, 5, Rational(5), farey_range=True)
+        assert len(r) > 0
+
+    # -- method coverage with farey_range ------------------------------------
+
+    def test_farey_method_all(self):
+        """method='all' with farey_range=True produces results."""
+        r = transcendental_range(1, 3, Rational(4), farey_range=True, method='all')
+        assert len(r) > 0
+
+    def test_farey_method_sin(self):
+        """method='sin' with farey_range=True."""
+        r = transcendental_range(-2, 2, Rational(4), farey_range=True, method='sin')
+        assert len(r) > 0
+
+    def test_farey_method_log(self):
+        """method='log' with farey_range=True."""
+        r = transcendental_range(1, 5, Rational(4), farey_range=True, method='log')
+        assert len(r) > 0
+
+    def test_farey_method_all_at_least_as_large(self):
+        """Farey order 4 with method='all' >= default step with method='all'."""
+        r_farey = transcendental_range(1, 3, Rational(1, 2), farey_range=True, method='all')
+        r_default = transcendental_range(1, 3, Rational(1, 2), farey_range=False, method='all')
+        assert len(r_farey) >= len(r_default)
+
 
 # ===========================================================================
 # FormulaComplexity

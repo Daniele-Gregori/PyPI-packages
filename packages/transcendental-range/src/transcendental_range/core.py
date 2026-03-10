@@ -222,20 +222,28 @@ def _farey_range(x: sympy.Basic, y: sympy.Basic, z: sympy.Basic) -> list:
     """Farey-sequence-based rational range in [x, y].
 
     Mirrors the WL FareyRange resource function behaviour:
-    - if z >= 1: use Farey order z
-    - if z == 1/n: use Farey order n
-    - if z == -1/n: reverse
+    - Integer z: order = |z|, reverse if z < 0, error if z == 0
+    - Rational z = 1/n: order = n (intuitive alternative step)
+    - Rational z = -1/n: order = n, reversed
+    - Other rationals: error
     """
     zn = _nv(z)
-    if zn >= 1:
-        order = int(zn)
-    elif isinstance(z, Rational) and z.p == 1:
-        order = int(z.q)
-    elif isinstance(z, Rational) and z.p == -1:
-        order = int(z.q)
+    if zn == 0:
+        raise ValueError("Farey step must be nonzero")
+
+    reverse = zn < 0
+    az = sympy.Abs(z)
+    azn = abs(zn)
+
+    # Determine Farey order from step
+    if az.is_Integer:
+        order = int(azn)
+    elif isinstance(az, Rational) and az.p == 1:
+        order = int(az.q)
     else:
-        # fallback
-        order = max(1, int(round(1 / abs(zn))))
+        raise ValueError(
+            f"Farey step must be a nonzero integer or 1/n, got {z}"
+        )
 
     farey = _farey_sequence(order)
     xn, yn = _nv(x), _nv(y)
@@ -252,7 +260,7 @@ def _farey_range(x: sympy.Basic, y: sympy.Basic, z: sympy.Basic) -> list:
             if mn - 1e-15 <= vn <= mx + 1e-15:
                 result.add(val)
     result = sorted(result, key=float)
-    if zn < 0:
+    if reverse:
         result = list(reversed(result))
     return result
 

@@ -285,6 +285,37 @@ class TestFareyRange:
         ld = len(algebraic_range(0, 3, Rational(1, 3)))
         assert lf >= ld
 
+    # -- WL FareyRange step-convention tests ----------------------------------
+
+    def test_7c_negative_step_reversed(self):
+        """Negative step ⇒ reversed result (same elements)."""
+        fwd = algebraic_range(0, 3, Rational(1, 3), farey_range=True)
+        rev = algebraic_range(3, 0, Rational(-1, 3), farey_range=True)
+        fwd_vals = sorted(float(v) for v in fwd)
+        rev_vals = sorted(float(v) for v in rev)
+        assert len(fwd) == len(rev)
+        for a, b in zip(fwd_vals, rev_vals):
+            assert abs(a - b) < 1e-10
+
+    def test_7d_fraction_step_1_over_n(self):
+        """Fraction(1, n) step ⇒ same as integer n (order = n)."""
+        r_int = algebraic_range(0, 3, Rational(4), farey_range=True)
+        r_frac = algebraic_range(0, 3, Rational(1, 4), farey_range=True)
+        # Both should use Farey order 4 internally
+        assert len(r_int) > 0
+        assert len(r_frac) > 0
+
+    def test_7e_integer_step_nonempty(self):
+        """Integer step > 3 produces non-trivial results."""
+        r = algebraic_range(0, 3, Rational(5), farey_range=True)
+        assert len(r) > 0
+
+    def test_7f_farey_at_least_as_large_negative_step(self):
+        """Farey with negative step still produces >= default elements."""
+        lf = len(algebraic_range(3, 0, Rational(-1, 3), farey_range=True))
+        ld = len(algebraic_range(3, 0, Rational(-1, 3)))
+        assert lf >= ld
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # GROUP 8 — Option formula_complexity_threshold

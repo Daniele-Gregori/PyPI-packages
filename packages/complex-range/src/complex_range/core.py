@@ -73,56 +73,101 @@ def _arange_inclusive(start: Union[int, float, Fraction],
     return result
 
 
-def _farey_range_values(start: float, end: float, order: int) -> List[Union[int, float, Fraction]]:
+def _resolve_farey_order(step) -> Tuple[int, bool]:
+    """Resolve a step value into a Farey order and direction.
+
+    Mirrors the WL FareyRange resource function behaviour:
+    - Integer n>0:  order n, forward
+    - Integer n<0:  order |n|, reversed
+    - Fraction 1/n: order n, forward
+    - Fraction -1/n: order n, reversed
+    - Zero or other rationals: error
+
+    Returns (order, reverse).
     """
-    Generate values for a Farey range.
-    
-    Should be included as package in later versions
+    if isinstance(step, Fraction):
+        if step == 0:
+            raise ComplexRangeError("Farey step must be nonzero")
+        reverse = step < 0
+        astep = abs(step)
+        if astep.denominator == 1:
+            # integer-valued Fraction
+            return int(astep), reverse
+        elif astep.numerator == 1:
+            return astep.denominator, reverse
+        else:
+            raise ComplexRangeError(
+                f"Farey step must be a nonzero integer or 1/n, got {step}"
+            )
+    elif isinstance(step, int):
+        if step == 0:
+            raise ComplexRangeError("Farey step must be nonzero")
+        return abs(step), step < 0
+    elif isinstance(step, float) and step.is_integer():
+        if step == 0:
+            raise ComplexRangeError("Farey step must be nonzero")
+        return int(abs(step)), step < 0
+    else:
+        raise ComplexRangeError(
+            f"Farey step must be a nonzero integer or 1/n, got {step}"
+        )
+
+
+def _farey_range_values(start: float, end: float, order: int,
+                        reverse: bool = False) -> List[Union[int, float, Fraction]]:
+    """Generate values for a Farey range.
+
+    Parameters
+    ----------
+    start, end : float
+        Interval bounds.
+    order : int
+        Positive Farey order.
+    reverse : bool
+        If True the result is returned in descending order.
     """
-    
     if order < 1:
         raise ComplexRangeError(f"Farey order must be positive, got {order}")
-    
-    # Get the Farey sequence for this order
+
     farey = farey_sequence(order)
-    
-    # Determine the number of unit intervals
-    span = end - start
+    mn, mx = min(start, end), max(start, end)
+    span = mx - mn
     num_units = int(span)
-    
-    """to check better this case"""
-    # If span is not an integer, we need to handle fractional part
-    if span != num_units:
-        # For non-integer spans, just scale the Farey sequence
-        result = sorted(set(float(start + f * span) for f in farey))
+
+    # Non-integer span: scale Farey sequence over the whole interval
+    if abs(span - num_units) > 1e-15:
+        result = sorted(set(float(mn + f * span) for f in farey))
+        if reverse:
+            result.reverse()
         return result
-    
-    # For integer spans, apply Farey to each unit interval
+
+    # Integer span: apply Farey to each unit interval
     all_values = set()
-    
-    """ok but what if the step is negative?"""
     for unit in range(num_units):
-        unit_start = start + unit
+        unit_start = mn + unit
         for f in farey:
             all_values.add(unit_start + float(f))
-    
-    # Convert to sorted list
+    # Include the right endpoint
+    all_values.add(float(mx))
+
     result = sorted(all_values)
-    
-    # Try to keep as fractions if possible
-    if all(isinstance(x, int) or (isinstance(x, float) and x == int(x)) for x in [start, end]):
+
+    # Keep as Fractions when possible
+    if all(isinstance(x, (int, float)) and float(x) == int(x) for x in [start, end]):
         frac_result = []
         for val in result:
             try:
-                frac = Fraction(val).limit_denominator(1000000) # increased from 1000
-                if abs(float(frac) - val) < 1e-14: # decreased from 1e-10
+                frac = Fraction(val).limit_denominator(1000000)
+                if abs(float(frac) - val) < 1e-14:
                     frac_result.append(frac)
                 else:
                     frac_result.append(val)
             except (ValueError, OverflowError):
                 frac_result.append(val)
-        return frac_result
-    
+        result = frac_result
+
+    if reverse:
+        result = list(reversed(result))
     return result
 
 
@@ -289,31 +334,20 @@ def _rectangular_range(
         im_step = step.imag if hasattr(step, 'imag') else step
 
     # Check for reversed range - return empty in case
-    if ((z1.real > z2.real and (re_step > 0)) and (z1.imag > z2.imag and (im_step > 0))): ###
-        return []
-    elif ((z1.real < z2.real and (re_step < 0)) and (z1.imag < z2.imag and (im_step < 0))): ###
-        return []
-
+    # (skip when farey_range=True: step sign only controls output order)
+    if not farey_range:
+        if ((z1.real > z2.real and (re_step > 0)) and (z1.imag > z2.imag and (im_step > 0))):
+            return []
+        elif ((z1.real < z2.real and (re_step < 0)) and (z1.imag < z2.imag and (im_step < 0))):
+            return []
 
     # Handle Farey range
     if farey_range:
-        # Farey range requires integer step
-        if not (isinstance(re_step, int) or (isinstance(re_step, float) and re_step.is_integer())):
-            raise ComplexRangeError(
-                f"No Farey range with non-integer third argument {re_step} is allowed."
-            )
-        if not (isinstance(im_step, int) or (isinstance(im_step, float) and im_step.is_integer())):
-            raise ComplexRangeError(
-                f"No Farey range with non-integer third argument {im_step} is allowed."
-            )
-        
-        re_order = int(re_step)
-        im_order = int(im_step)
-        
-        # Generate Farey-based ranges
-        # The Farey sequence is applied to each unit interval, then combined
-        re_values = _farey_range_values(re_min, re_max, re_order)
-        im_values = _farey_range_values(im_min, im_max, im_order)
+        re_order, re_rev = _resolve_farey_order(re_step)
+        im_order, im_rev = _resolve_farey_order(im_step)
+
+        re_values = _farey_range_values(re_min, re_max, re_order, reverse=re_rev)
+        im_values = _farey_range_values(im_min, im_max, im_order, reverse=im_rev)
     else:
         # Regular range
         re_values = _arange_inclusive(re_min, re_max, re_step)
@@ -389,22 +423,11 @@ def _linear_range(
 
     # Handle Farey range
     if farey_range:
-        # Farey range requires integer step
-        if not (isinstance(re_step, int) or (isinstance(re_step, float) and re_step.is_integer())):
-            raise ComplexRangeError(
-                f"No Farey range with non-integer third argument {re_step} is allowed."
-            )
-        if not (isinstance(im_step, int) or (isinstance(im_step, float) and im_step.is_integer())):
-            raise ComplexRangeError(
-                f"No Farey range with non-integer third argument {im_step} is allowed."
-            )
+        re_order, re_rev = _resolve_farey_order(re_step)
+        im_order, im_rev = _resolve_farey_order(im_step)
 
-        re_order = int(re_step)
-        im_order = int(im_step)
-
-        # Generate Farey-based ranges
-        re_values = _farey_range_values(re_start, re_end, re_order)
-        im_values = _farey_range_values(im_start, im_end, im_order)
+        re_values = _farey_range_values(re_start, re_end, re_order, reverse=re_rev)
+        im_values = _farey_range_values(im_start, im_end, im_order, reverse=im_rev)
     else:
         # Generate ranges for each component
         re_values = _arange_inclusive(re_start, re_end, re_step)

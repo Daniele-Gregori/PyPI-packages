@@ -175,6 +175,44 @@ class TestFareyRangeOption:
         with pytest.raises(ComplexRangeError):
             complex_range(0, 1+1j, 0.5+0.5j, farey_range=True)
 
+    # -- WL FareyRange step-convention tests ----------------------------------
+
+    def test_farey_fraction_step_1_over_n(self):
+        """Fraction(1, n) step is equivalent to integer n."""
+        r_int = complex_range(0, 2+2j, [4, 4], farey_range=True)
+        r_frac = complex_range(0, 2+2j, [Fraction(1, 4), Fraction(1, 4)], farey_range=True)
+        assert len(r_int) == len(r_frac)
+        for a, b in zip(r_int, r_frac):
+            assert a == pytest.approx(b)
+
+    def test_farey_negative_step_same_count(self):
+        """Negative integer step reverses axis but keeps same grid size."""
+        r_pos = complex_range(0, 2+2j, [4, 4], farey_range=True)
+        r_neg = complex_range(0, 2+2j, [-4, 4], farey_range=True)
+        assert len(r_pos) == len(r_neg)
+
+    def test_farey_neg_fraction_step(self):
+        """Fraction(-1, n) step works and produces same count as positive."""
+        r_pos = complex_range(0, 2+2j, [Fraction(1, 4), Fraction(1, 4)], farey_range=True)
+        r_neg = complex_range(0, 2+2j, [Fraction(-1, 4), Fraction(-1, 4)], farey_range=True)
+        assert len(r_pos) == len(r_neg)
+
+    def test_farey_zero_step_raises(self):
+        """Zero step should raise ComplexRangeError."""
+        with pytest.raises(ComplexRangeError):
+            complex_range(0, 2+2j, [0, 4], farey_range=True)
+
+    def test_farey_non_unit_fraction_raises(self):
+        """Non-unit fraction step (e.g. 2/3) should raise ComplexRangeError."""
+        with pytest.raises(ComplexRangeError):
+            complex_range(0, 2+2j, [Fraction(2, 3), 4], farey_range=True)
+
+    def test_farey_large_order_finer_grid(self):
+        """Larger Farey order produces more points."""
+        r4 = complex_range(0, 2+2j, [4, 4], farey_range=True)
+        r6 = complex_range(0, 2+2j, [6, 6], farey_range=True)
+        assert len(r6) > len(r4)
+
 
 class TestNegativeStep:
     """Tests for negative step scenarios."""
@@ -537,6 +575,32 @@ class TestLinearFareyRange:
         """
         with pytest.raises(ComplexRangeError):
             complex_range([0, 1+1j], [0.5, 0.5], farey_range=True)
+
+    # -- WL FareyRange step-convention tests for linear ranges ----------------
+
+    def test_linear_farey_fraction_step_1_over_n(self):
+        """Fraction(1, n) step equivalent to integer n for linear range."""
+        r_int = complex_range([0, 2+2j], [4, 4], farey_range=True)
+        r_frac = complex_range([0, 2+2j], [Fraction(1, 4), Fraction(1, 4)], farey_range=True)
+        assert len(r_int) == len(r_frac)
+        for a, b in zip(r_int, r_frac):
+            assert a == pytest.approx(b)
+
+    def test_linear_farey_negative_step(self):
+        """Negative integer step reverses but keeps same point count."""
+        r_pos = complex_range([0, 2+2j], [4, 4], farey_range=True)
+        r_neg = complex_range([0, 2+2j], [-4, -4], farey_range=True)
+        assert len(r_pos) == len(r_neg)
+
+    def test_linear_farey_zero_step_raises(self):
+        """Zero step should raise ComplexRangeError for linear Farey."""
+        with pytest.raises(ComplexRangeError):
+            complex_range([0, 2+2j], [0, 4], farey_range=True)
+
+    def test_linear_farey_non_unit_fraction_raises(self):
+        """Non-unit fraction step raises ComplexRangeError for linear Farey."""
+        with pytest.raises(ComplexRangeError):
+            complex_range([0, 2+2j], [Fraction(2, 3), 4], farey_range=True)
 
     def test_linear_farey_creates_more_points_than_regular(self):
         """Test that linear Farey range creates more points than regular step."""
