@@ -1,8 +1,8 @@
 # transform-tabular
 
 [![Tests](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/transform-tabular.yml/badge.svg)](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/transform-tabular.yml)
-[![PyPI version](https://img.shields.io/pypi/v/transform-tabular)](https://pypi.org/project/transform-tabular/)
-[![Python versions](https://img.shields.io/pypi/pyversions/transform-tabular)](https://pypi.org/project/transform-tabular/)
+[![PyPI version](https://badge.fury.io/py/transform-tabular.svg)](https://badge.fury.io/py/transform-tabular)
+[![Python versions](https://img.shields.io/pypi/pyversions/transform-tabular.svg)](https://pypi.org/project/transform-tabular/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 
