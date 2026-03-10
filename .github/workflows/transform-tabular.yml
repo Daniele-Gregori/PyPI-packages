@@ -1,4 +1,4 @@
-name: transform-tabular
+name: transform-tabular tests
 
 on:
   push:
@@ -12,9 +12,6 @@ on:
       - ".github/workflows/transform-tabular.yml"
   workflow_dispatch:
 
-defaults:
-  run:
-    working-directory: packages/transform-tabular
 
 jobs:
   test:
