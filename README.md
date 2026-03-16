@@ -8,6 +8,8 @@ Packages currently hosted on the Python Package Index (PyPI):
 
 * [complex-range](https://pypi.org/project/complex-range/): generate ranges of complex numbers;
 
+* [farey](https://pypi.org/project/farey/): generate Farey sequences and ranges;
+
 * [partition-while](https://pypi.org/project/partition-while/): partition a list by a condition on the sublists;
 
 * [transform-tabular](https://pypi.org/project/transform-tabular/): apply a single function across an entire DataFrame;
@@ -17,6 +19,6 @@ Packages currently hosted on the Python Package Index (PyPI):
 
 *More on the way!*
 
-These are mostly direct translations of the corresponding [Wolfram resource functions](https://github.com/Daniele-Gregori/ResourceFunctions/).
+These packages are mostly direct translations of the corresponding [Wolfram resource functions](https://github.com/Daniele-Gregori/ResourceFunctions/).
 
 
