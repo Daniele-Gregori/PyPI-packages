@@ -1,15 +1,15 @@
 # find-closed-form
 
 [![find-closed-form](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/find-closed-form.yml/badge.svg)](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/find-closed-form.yml)
-[![PyPI](https://badge.fury.io/py/find-closed-form.svg)](https://pypi.org/project/find-closed-form/)
+[![PyPI version](https://badge.fury.io/py/find-closed-form.svg)](https://badge.fury.io/py/find-closed-form)
 [![Python](https://img.shields.io/pypi/pyversions/find-closed-form)](https://pypi.org/project/find-closed-form/)
 
-A Python port of the Wolfram Language ResourceFunction
+A Python port of the Wolfram Language resource function
 [FindClosedForm](https://resources.wolframcloud.com/FunctionRepository/resources/FindClosedForm/),
 contributed by the same author.
 
 `find_closed_form` helps solve the fundamental problem of
-[number recognition](https://mathworld.wolfram.com/NumberRecognition.html),
+[number recognition](https://reference.wolfram.com/language/guide/NumberRecognition.html),
 by searching for a possible closed-form formula for a given number `y`,
 in terms of arbitrary combinations of elementary and higher mathematical
 functions.
