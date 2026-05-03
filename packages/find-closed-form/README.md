@@ -1,218 +1,347 @@
 # find-closed-form
 
+[![find-closed-form](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/find-closed-form.yml/badge.svg)](https://github.com/Daniele-Gregori/PyPI-packages/actions/workflows/find-closed-form.yml)
+[![PyPI](https://badge.fury.io/py/find-closed-form.svg)](https://pypi.org/project/find-closed-form/)
+[![Python](https://img.shields.io/pypi/pyversions/find-closed-form)](https://pypi.org/project/find-closed-form/)
 
+A Python port of the Wolfram Language ResourceFunction
+[FindClosedForm](https://resources.wolframcloud.com/FunctionRepository/resources/FindClosedForm/),
+contributed by the same author.
 
-**DISCLAIMER**
+`find_closed_form` helps solve the fundamental problem of
+[number recognition](https://mathworld.wolfram.com/NumberRecognition.html),
+by searching for a possible closed-form formula for a given number `y`,
+in terms of arbitrary combinations of elementary and higher mathematical
+functions.
 
-**This is a very early vibe-coded version and its use is not recommended. The reason for such *pre-crastination* is just that the maintainer *dangregori* realized that in these days (first weekend of May 2026 A.D.) the *Python Package Index* topped the 800k projects. When he joined this open mess just half a year before there were about 100k less. Clearly there are too many other vibe coders around here... but the maintainer will not allow them to spam the namespace of his own expert-reviewed and published *Wolfram* *[ResourceFunction["FindClosedForm"]](https://resources.wolframcloud.com/FunctionRepository/resources/FindClosedForm/)*.**
+The fundamental strategy is that, given a callable `f`, progressively more
+complex rational arguments are tried, until a numerical match with the given
+value `y` is found. By default, this match is searched up to linear
+combinations with algebraic numbers (rationals or roots).
 
----
+When no functional form is specified, for each round of argument search,
+a further search goes through the following common mathematical functions:
+`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `acot`, `log`, `exp`,
+`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `acoth`,
+`zeta`, `gamma`, `polygamma`, `erf`, `erfinv`,
+`elliptic_k`, `elliptic_e`, `airyai`, `airybi`.
+In addition, `find_closed_form` searches among algebraic combinations of the
+following mathematical constants:
+`pi`, `EulerGamma`, `Catalan`, `GoldenRatio`.
 
-Given a numerical value, `find_closed_form` searches for closed-form
-mathematical expressions that match it — testing candidates directly by
-comparing digits and filtering by a formula-complexity heuristic.
+## Installation
 
-**This will progressively become a Python port** of the Wolfram Language ResourceFunction
-[FindClosedForm](https://resources.wolframcloud.com/FunctionRepository/resources/FindClosedForm/), contributed by the same author and vetted by the Wolfram reviewers.
-
-
-
+```bash
+pip install find-closed-form
+```
 
 ## Quick start
+
+Find a possible mathematical function for a number:
 
 ```python
 from find_closed_form import find_closed_form
 
-# Identify sqrt(2)/2
-find_closed_form(0.7071067811865476)
-# [sqrt(2)/2]
-
-# Identify the Euler–Mascheroni constant
-find_closed_form(0.5772156649015329)
-# [EulerGamma]
-
-
-# bad: less digits do not work automatically
-# bad: single output should not be a list
+find_closed_form(0.405465)          # log(3/2)
 ```
 
-## How it works
-
-1. **Argument-range generation** — For each search round the algorithm
-   expands a Farey-based range of rational arguments (built-in
-   `farey_range` implementation).
-
-2. **Function evaluation** — A library of ~27 common mathematical
-   functions (trig, exponential, logarithmic, special functions, and
-   mathematical constants) is evaluated over the argument range.
-
-3. **Digit matching** — Candidate expressions are accepted when
-   `|1 − candidate/target| ≤ 10^(−digits+1)`, where *digits* is
-   auto-detected from the input or set explicitly.
-
-4. **Algebraic combinations** — Beyond direct `f(arg)` matches, the
-   algorithm also searches for:
-   - **Multiplicative**: `a · f(b) ≈ target`, where *a* is a simple
-     algebraic number (integer, rational, or root).
-   - **Additive**: `a + f(b) ≈ target`.
-
-5. **Complexity filtering** — Every candidate is scored using the
-   built-in `formula_complexity` heuristic and discarded if it exceeds
-   the threshold.
-
-## API
+Find possible closed forms in terms of common mathematical functions:
 
 ```python
-find_closed_form(
-    y,                                  # target number (int, float, Fraction, sympy)
-    functions=None,                     # callable, list of callables, or list of (name, fn, filter) tuples
-    max_results=1,                      # how many results to return
-    *,
-    significant_digits=None,            # precision target (auto-detected if None)
-    formula_complexity_threshold=None,  # max allowed complexity (auto-scaled if None)
-    algebraic_factor=True,              # enable a·f(b,...) search
-    algebraic_add=True,                 # enable a+f(b,...) search
-    max_search_rounds=50,               # max argument-range expansion rounds
-)
+find_closed_form(3.792277)          # 1/6 + gamma(1/4)
 ```
 
-## Examples
-
-### 1. Recognise a trigonometric value
+Find formulae in terms of mathematical constants:
 
 ```python
-import math
-find_closed_form(math.cos(math.pi / 5))
-# [GoldenRatio/2]
+find_closed_form(1.044866)          # 1/sqrt(Catalan)
 ```
 
-### 2. Identify a logarithmic expression
+Specify the functional form as a callable:
 
 ```python
-find_closed_form(0.6931471805599453)
-# [log(2)]
+from sympy import zeta
+
+find_closed_form(1.85653, functions=lambda x: 1/zeta(x)**2)
+# zeta(1/5)**(-2)
 ```
 
-### 3. Pass a pure function to search over
+## Scope
+
+The numerical match with the functional form is searched up to addition or
+multiplication by an algebraic number (that is, a rational or root):
+
+```python
+from sympy import asinh, log, exp
+
+find_closed_form(0.780653, functions=lambda x: asinh(x))
+# sqrt(5)*asinh(4)/6
+
+find_closed_form(7.443967, functions=lambda x: log(1 + exp(x)))
+# 10*log(1 + exp(1/10))
+```
+
+Multi-argument functions are supported:
+
+```python
+from sympy import gamma, log
+
+find_closed_form(6.263643,
+    functions=lambda x, y: log(x)*log(y),
+    search_range="Integer")
+# 2*log(5)*log(7)
+
+find_closed_form(14.911818,
+    functions=lambda x, y: gamma(x)*gamma(y),
+    search_range="Plain")
+# gamma(1/6)*gamma(1/3)
+```
+
+Search through a list of functional forms:
+
+```python
+from sympy import sinh, cosh, sech, csch
+
+find_closed_form(5.550045, functions=[
+    lambda x: sinh(x), lambda x: cosh(x),
+    lambda x: sech(x), lambda x: csch(x),
+])
+# 6*sech(2/5)
+```
+
+Multiple results can be requested through `max_results`:
+
+```python
+find_closed_form(0.405465, functions=lambda x: log(x), max_results=10)
+# returns multiple results, first = log(3/2)
+```
+
+## Options
+
+### `algebraic_add`
+
+Setting `algebraic_add=False` restricts the search to the specified functional
+form up to multiplication (but not addition) by an algebraic number. This
+can speed up the search, since special range properties are exploited for
+certain known functions:
+
+```python
+from sympy import gamma
+
+find_closed_form(0.1013578,
+    functions=lambda x, y: 1/(gamma(x)*gamma(y)),
+    algebraic_add=False)
+# 1/(sqrt(pi)*gamma(1/6))
+```
+
+### `algebraic_factor`
+
+Setting `algebraic_factor=False` restricts the search to the specified
+functional form up to addition (but not multiplication) of an algebraic
+number.
+
+If both `algebraic_add` and `algebraic_factor` are set to `False`, the
+search can be faster but may miss linear combinations of the functional form.
+
+### `formula_complexity_threshold`
+
+If not enough digits are specified, a careful balance between precision and
+complexity of the result should be reached through `formula_complexity_threshold`.
+Often the desired formula is the simplest. For example:
+
+```python
+from sympy import gamma
+
+find_closed_form(38.94017, functions=lambda x: gamma(x),
+    formula_complexity_threshold=15)
+# 2*gamma(1/20)
+```
+
+The formula complexity is a positive real value which ranks complexity as
+follows: take all integers appearing in the formula (expanding rationals,
+roots, etc.); for each integer, compute the mean among the square root of
+its absolute value, its digit sum, and 5 times its number of digits; then
+take the total of these means.
+
+### `max_search_rounds`
+
+The maximum number of argument search rounds is 50 by default. This also
+determines the largest integer argument and rational denominator reachable:
+
+```python
+from sympy import gamma
+
+find_closed_form(49.44221, functions=lambda x: gamma(x),
+    algebraic_add=False, algebraic_factor=False, search_range="Plain")
+# gamma(1/50)
+```
+
+By default, larger arguments are not reachable:
+
+```python
+find_closed_form(59.43902, functions=lambda x: gamma(x),
+    algebraic_add=False, algebraic_factor=False, search_range="Plain")
+# None
+```
+
+Changing the value of `max_search_rounds` allows a solution to be found:
+
+```python
+find_closed_form(59.43902, functions=lambda x: gamma(x),
+    max_search_rounds=100, algebraic_add=False, algebraic_factor=False,
+    search_range="Plain")
+# gamma(1/60)
+```
+
+### `rational_solutions`
+
+By default, simple rational solutions are not returned, and more sophisticated
+solutions are searched for. If `rational_solutions=True`, simple exact
+rational solutions are allowed:
 
 ```python
 from sympy import sin, pi
 
-find_closed_form(0.8660254037844386, functions=lambda x: sin(pi * x))
-# [sin(pi/3)]
-# bad actual result is [] 
+find_closed_form(0.25, functions=lambda x: sin(pi*x),
+    rational_solutions=True, algebraic_add=False)
+# 1/4
 ```
 
-### 4. Search with a named function and domain filter
+If the functional form is the identity, there is no need for this option:
 
 ```python
-from sympy import asin
-
-find_closed_form(
-    1.0471975511965976,
-    functions=[("asin(#)", lambda x: asin(x), lambda x: 0 <= x <= 1)],
-)
-# [asin(sqrt(3)/2)]
+find_closed_form(0.25, functions=lambda x: x)
+# 1/4
 ```
 
-### 5. Combine multiple functional forms
+### `search_arguments`
+
+Through `search_arguments` you can specify each particular argument
+to be tried:
 
 ```python
-from sympy import cos, exp, pi
+from sympy import gamma
+from fractions import Fraction
 
-find_closed_form(
-    0.5,
-    functions=[lambda x: sin(pi * x), lambda x: cos(pi * x)],
-    max_results=3,
-)
-# [sin(pi/6), cos(pi/3), ...]
+find_closed_form(4.678938, functions=lambda x: gamma(x),
+    search_arguments=[Fraction(3), Fraction(1), Fraction(1, 3)])
+# 2 + gamma(1/3)
 ```
 
-### 6. Two-argument function — multiplicative
+This can speed up the search and serves as a debugging tool.
+
+### `search_range`
+
+By default, for each search round the arguments span the Farey range
+`farey_range(-round, round, round)`, which consists of rationals of
+uniform complexity. The following values are supported:
+
+| Value | Range per round |
+|-------|-----------------|
+| `"Farey"` | `farey_range(-cut, cut, cut)` — a rational Farey range |
+| `"Plain"` | `range(-cut, cut, 1/cut)` — the shorter rational range |
+| `"Integer"` | `range(-cut, cut)` — purely integer arguments |
 
 ```python
 from sympy import log
 
-# 2 * log(3) ≈ 2.1972...
-find_closed_form(2.1972245773362196, functions=lambda x, y: x * log(y))
-# [2*log(3)]
+find_closed_form(6.263643,
+    functions=lambda x, y: log(x)*log(y),
+    search_range="Integer")
+# 2*log(5)*log(7)
 ```
 
-### 7. Two-argument function with domain filter
+### `search_range_fn`
+
+It is possible to specify a custom range function of the search round number:
 
 ```python
-find_closed_form(
-    1.0,
-    functions=[(
-        "x*sin(pi*y)",
-        lambda x, y: x * sin(pi * y),
-        lambda x, y: x > 0 and 0 < y < 1,
-    )],
-)
-# [2*sin(pi/6)]
+from sympy import log
+from fractions import Fraction
+
+find_closed_form(13.165149, functions=lambda x: log(x),
+    search_range_fn=lambda cut: [Fraction(i) for i in range(0, 100*cut+1, 25)])
+# sqrt(3)*log(2000)
 ```
 
-### 8. Three-argument function
+### `significant_digits`
+
+The precision of the numerical match is automatically set to the number
+of significant digits in the given number. If you want to ignore some
+numerical error, you can specify a lower value:
 
 ```python
-# Search for x + y*log(z)
-find_closed_form(
-    2.3862943611198906,
-    functions=lambda x, y, z: x + y * log(z),
-    max_search_rounds=5,
-)
-# [1 + 2*log(2)] or equivalent
+from sympy import zeta
+
+find_closed_form(0.81248057539,
+    functions=lambda x: 1/zeta(x)**2,
+    significant_digits=7)
+# zeta(11/3)**(-2)
 ```
 
-### 9. Use a regular Python function (not just lambdas)
+### `search_time_limit`
+
+The maximum time in seconds spent by the search algorithm. Default is 3600.
+
+### Summary table
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `functions` | `None` | Functional forms to search; `None` uses ~29 common functions. |
+| `max_results` | `1` | Number of results to return. |
+| `significant_digits` | Auto | Precision target; auto-detected from input digits. |
+| `formula_complexity_threshold` | Auto | Maximum formula complexity; auto-scaled per round. |
+| `algebraic_factor` | `True` | Search up to multiplication by algebraic numbers. |
+| `algebraic_add` | `True` | Search up to addition of algebraic numbers. |
+| `rational_solutions` | `False` | Allow simple rational solutions. |
+| `max_search_rounds` | `50` | Maximum argument-range expansion rounds. |
+| `search_range` | `"Farey"` | Argument range type: `"Farey"`, `"Plain"`, or `"Integer"`. |
+| `search_range_fn` | `None` | Custom `f(cut) → list` for argument generation. |
+| `search_arguments` | `None` | Fixed argument list (bypasses auto ranges). |
+| `search_time_limit` | `3600` | Maximum seconds for the search. |
+
+## Properties and relations
+
+`find_closed_form` with the identity function generalizes rationalization
+and works with fewer digits:
 
 ```python
-from sympy import exp, sqrt
-
-def my_form(x):
-    return exp(x) / sqrt(2)
-
-find_closed_form(1.9221276790498548, functions=my_form)
-# [exp(1)/sqrt(2)] or equivalent
+find_closed_form(0.666, functions=lambda x: x)   # 2/3
 ```
 
-### 10. Fewer significant digits — find approximate matches
+When the given number approximates a simple root, it also generalizes
+root approximation:
 
 ```python
-find_closed_form(1.414, significant_digits=4, max_results=5)
-# [sqrt(2), ...] and other expressions close to 1.414
+find_closed_form(4.243, functions=lambda x: x)    # 3*sqrt(2)
+find_closed_form(0.5848, functions=lambda x: x)   # 5**(-1/3)
 ```
 
-### 11. Stricter matching with more significant digits
+## Auxiliary functions
+
+The `formula_complexity` function is also exported and can be used directly
+to compute the complexity of any sympy expression:
 
 ```python
-find_closed_form(1.4142135623730951, significant_digits=15)
-# [sqrt(2)]
+from find_closed_form import formula_complexity
+from sympy import Rational
+
+formula_complexity(2*gamma(Rational(1, 20)))
 ```
 
-### 12. Controlling complexity to prefer simpler expressions
+The `farey_range` function generates Farey-based argument ranges:
 
 ```python
-find_closed_form(0.7071067811865476, formula_complexity_threshold=10)
-# [sqrt(2)/2]
+from find_closed_form import farey_range
+
+farey_range(-3, 3, 3)
+# [-3, -8/3, -5/2, ..., 5/2, 8/3, 3]
 ```
-
-## Formula complexity
-
-The complexity of a candidate expression is computed as the sum of
-per-integer complexities for every integer appearing in the expression:
-
-```
-int_complexity(n) = 0.5 × mean(digit_sum, 5×len, #prime_factors, √n)
-```
-
-This is the same definition as the WL
-[AlgebraicRange](https://resources.wolframcloud.com/FunctionRepository/resources/AlgebraicRange/)
-resource function.
 
 ## Dependencies
 
-- [sympy](https://www.sympy.org/) — symbolic mathematics (only runtime dependency)
+- [sympy](https://www.sympy.org/) ≥ 1.12
+- [farey](https://pypi.org/project/farey/) ≥ 0.6.0
 
 ## License
 

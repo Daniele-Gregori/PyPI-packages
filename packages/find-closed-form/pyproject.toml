@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "find-closed-form"
-version = "0.0.2"
+version = "0.4.0"
 description = "Find closed-form expressions for numerical values"
 readme = "README.md"
 license = "MIT"
@@ -23,7 +23,7 @@ keywords = [
     "inverse-symbolic-calculator",
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Education",
     "Operating System :: OS Independent",
@@ -37,6 +37,7 @@ classifiers = [
 ]
 dependencies = [
     "sympy>=1.12",
+    "farey>=0.6.0",
 ]
 
 [project.optional-dependencies]

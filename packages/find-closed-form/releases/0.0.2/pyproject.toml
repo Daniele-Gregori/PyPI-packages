@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "find-closed-form"
-version = "0.1.0"
+version = "0.0.2"
 description = "Find closed-form expressions for numerical values"
 readme = "README.md"
 license = "MIT"

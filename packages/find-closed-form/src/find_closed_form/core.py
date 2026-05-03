@@ -6,8 +6,7 @@ originally contributed by Daniele Gregori.
 
 The algorithm searches for closed-form mathematical expressions that match a
 given numerical value by evaluating candidate functions over Farey-based
-argument ranges and testing digit-level agreement. Complexity is scored using
-the same heuristic as the WL ``AlgebraicRange`` resource function.
+argument ranges and testing digit-level agreement.
 """
 
 from __future__ import annotations
@@ -16,15 +15,14 @@ import bisect
 import inspect
 import itertools
 import math
+import time
 from fractions import Fraction
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import sympy
 from sympy import (
     Integer,
     Rational,
-    Pow,
-    S,
     pi,
     E,
     EulerGamma,
@@ -35,6 +33,7 @@ from sympy import (
     sin,
     cos,
     tan,
+    cot,
     asin,
     acos,
     atan,
@@ -42,6 +41,9 @@ from sympy import (
     sinh,
     cosh,
     tanh,
+    coth,
+    sech,
+    csch,
     asinh,
     acosh,
     atanh,
@@ -53,256 +55,130 @@ from sympy import (
     erfinv,
     elliptic_k,
     elliptic_e,
-    nsimplify,
-    factorint,
+    sqrt,
+    airyai,
+    airybi,
 )
+from farey import farey_range as _ext_farey_range
 
-__all__ = ["find_closed_form", "formula_complexity", "farey_range",
-           "FindClosedFormError"]
+__all__ = [
+    "find_closed_form",
+    "formula_complexity",
+    "farey_range",
+    "FindClosedFormError",
+]
 
 Number = Union[int, float, Fraction, sympy.Basic]
 
-
-# ── Exceptions ──────────────────────────────────────────────────────────────
 
 class FindClosedFormError(Exception):
     """Base exception for find_closed_form errors."""
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Farey range (self-contained, no dependency on the ``farey`` package)
-# ═══════════════════════════════════════════════════════════════════════════
-
-def _farey_sequence(n: int) -> List[Fraction]:
-    """Farey sequence F_n (fractions in [0, 1] with denominator <= n)."""
-    result: set[Fraction] = set()
-    for d in range(1, n + 1):
-        for k in range(0, d + 1):
-            result.add(Fraction(k, d))
-    return sorted(result)
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# Farey range  (delegate to the ``farey`` package)
+# ═══════════════════════════════════════════════════════════════════════════════
 
 def farey_range(
     start: Union[int, float, Fraction],
     end: Union[int, float, Fraction],
-    step: Union[int, float, Fraction, None] = None,
-) -> List[Union[Fraction, float]]:
-    """
-    Generate a Farey range over the interval [start, end].
-
-    Parameters
-    ----------
-    start, end : number
-        Interval endpoints.
-    step : int, float, Fraction, or None
-        Positive integer *n* or ``Fraction(1, n)`` → Farey order *n*.
-        Negative → descending. ``None`` → order 1.
-    """
-    if step is None:
-        order, reverse = 1, False
-    else:
-        if isinstance(step, float):
-            step = Fraction(step).limit_denominator(10 ** 9)
-        if isinstance(step, Fraction):
-            if step == 0:
-                raise ValueError("step must be nonzero")
-            reverse = step < 0
-            astep = abs(step)
-            if astep.denominator == 1:
-                order = int(astep)
-            elif astep.numerator == 1:
-                order = astep.denominator
-            else:
-                order = max(int(astep.numerator), int(astep.denominator))
-        elif isinstance(step, int):
-            if step == 0:
-                raise ValueError("step must be nonzero")
-            order, reverse = abs(step), step < 0
-        else:
-            order, reverse = int(abs(step)), float(step) < 0
-
-    farey = _farey_sequence(order)
-    mn, mx = min(start, end), max(start, end)
-    span = float(mx) - float(mn)
-    num_units = int(span)
-
-    if abs(span - num_units) > 1e-15:
-        result = sorted(set(float(mn) + float(f) * span for f in farey))
-        return list(reversed(result)) if reverse else result
-
-    all_values: set[float] = set()
-    for unit in range(num_units):
-        base = float(mn) + unit
-        for f in farey:
-            all_values.add(base + float(f))
-    all_values.add(float(mx))
-    result_f = sorted(all_values)
-
-    if all(isinstance(x, (int, Fraction)) or float(x) == int(float(x))
-           for x in [start, end]):
-        frac_result: List[Union[Fraction, float]] = []
-        for val in result_f:
-            frac = Fraction(val).limit_denominator(1_000_000)
-            frac_result.append(frac if abs(float(frac) - val) < 1e-14 else val)
-        result_out = frac_result
-    else:
-        result_out = result_f  # type: ignore[assignment]
-
-    return list(reversed(result_out)) if reverse else result_out
+    order: Union[int, None] = None,
+) -> list:
+    """Generate a Farey-based range of rationals, wrapping ``farey.farey_range``."""
+    return _ext_farey_range(start, end, order)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Formula complexity (same heuristic as algebraic-range)
-# ═══════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
+# Formula complexity
+# ═══════════════════════════════════════════════════════════════════════════════
 
 def _digit_sum(n: int) -> int:
     return sum(int(c) for c in str(abs(n)))
 
 
-def _int_complexity(n: int) -> float:
-    """Per-integer complexity: 0.5 * mean(DigitSum, 5*Len, #PrimeFactors, sqrt)."""
-    if n <= 0:
-        n = abs(n) + 1
-    ds = _digit_sum(n)
-    il = len(str(n))
-    pf = sum(e for _, e in factorint(n).items()) if n > 1 else 0
-    sq = math.sqrt(n)
-    return 0.5 * (ds + 5 * il + pf + sq) / 4.0
+def _integer_length(n: int) -> int:
+    if n == 0:
+        return 1
+    return len(str(abs(n)))
 
 
-def _collect_integers(expr: sympy.Basic, acc: list, mult: int = 1):
+def _collect_integers(expr, mult: int = 1) -> List[int]:
+    """Extract all integers from a sympy expression, duplicated for root degrees."""
+    if not isinstance(expr, sympy.Basic):
+        return []
+
+    known_constants = {pi, E, EulerGamma, Catalan, GoldenRatio}
+    if expr in known_constants:
+        return [1] * mult
+
     if expr.is_Integer:
-        acc.extend([int(expr)] * mult)
-        return
+        return [int(expr)] * mult
+
     if expr.is_Rational and not expr.is_Integer:
-        acc.extend([int(expr.p)] * mult)
-        acc.extend([int(expr.q)] * mult)
-        return
-    if expr.func == Pow and len(expr.args) == 2:
+        return [int(expr.p)] * mult + [int(expr.q)] * mult
+
+    if expr.func == sympy.Pow and len(expr.args) == 2:
         base, ex = expr.args
         if ex.is_Rational and not ex.is_Integer:
-            deg = max(int(abs(ex.p)), int(abs(ex.q)))
-            _collect_integers(base, acc, mult * deg)
-            return
-        if ex.is_Integer:
-            _collect_integers(base, acc, mult * int(abs(ex)))
-            return
+            deg = max(abs(int(ex.p)), abs(int(ex.q)))
+            return _collect_integers(base, mult * max(deg, 1))
+        if ex.is_Integer and abs(int(ex)) > 1:
+            return _collect_integers(base, mult * abs(int(ex)))
+
+    result: list[int] = []
     for a in expr.args:
-        _collect_integers(a, acc, mult)
+        result.extend(_collect_integers(a, mult))
+    return result
 
 
-def formula_complexity(expr: Number) -> float:
+def formula_complexity(expr) -> float:
     """
-    Compute the heuristic formula complexity of an algebraic expression.
+    Heuristic complexity of a sympy expression.
 
-    Complexity is the sum of per-integer complexities for every integer
-    appearing in the expression (accounting for root orders as multipliers).
+    For each integer in the expression: ``mean(5*IntegerLength, DigitSum, sqrt(|n|))``.
+    Sum over all integers.  Constants (pi, E, …) count as 1.
     """
-    if isinstance(expr, (int, float, Fraction)):
+    if isinstance(expr, (int, float)):
         expr = sympy.sympify(expr)
-    ints: list[int] = []
-    _collect_integers(expr, ints)
-    positives = [abs(n) + 1 if n <= 0 else n for n in ints]
-    return sum(_int_complexity(p) for p in positives) if positives else 0.0
+    if isinstance(expr, Fraction):
+        expr = Rational(expr.numerator, expr.denominator)
+    if isinstance(expr, list):
+        return max((formula_complexity(e) for e in expr), default=0.0)
+
+    ints = _collect_integers(expr)
+    if not ints:
+        return 0.0
+    total = 0.0
+    for i in ints:
+        ai = abs(i) if i != 0 else 1
+        total += (5 * _integer_length(ai) + _digit_sum(ai) + math.sqrt(ai)) / 3.0
+    return total
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Core find_closed_form algorithm
-# ═══════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
+# Precision helpers
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Arity detection ─────────────────────────────────────────────────────────
-
-def _func_arity(func: Callable) -> int:
-    """Detect the number of positional parameters of a callable."""
-    try:
-        sig = inspect.signature(func)
-        return sum(
-            1 for p in sig.parameters.values()
-            if p.default is inspect.Parameter.empty
-            and p.kind in (
-                inspect.Parameter.POSITIONAL_ONLY,
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            )
-        )
-    except (ValueError, TypeError):
-        return 1
-
-
-# ── Default functional forms ────────────────────────────────────────────────
-
-def _make_default_functions() -> List[Tuple[str, Callable, Optional[Callable]]]:
-    """
-    Return default functional forms as (name, sympy_func, domain_filter).
-
-    domain_filter receives the same arguments as the function (one value
-    per slot) and returns True if the argument combination is valid.
-    """
-    _0to1 = lambda x: 0 <= float(x) <= 1
-    _0toHalf = lambda x: 0 <= float(x) <= 0.5
-    _ge0 = lambda x: float(x) >= 0
-    _ge1 = lambda x: float(x) >= 1
-    _01open = lambda x: 0 < float(x) < 1
-
-    return [
-        # Constants as power bases
-        ("pi^#", lambda x: pi ** x, None),
-        ("E^#", lambda x: E ** x, None),
-        ("EulerGamma^#", lambda x: EulerGamma ** x, None),
-        ("Catalan^#", lambda x: Catalan ** x, None),
-        ("GoldenRatio^#", lambda x: GoldenRatio ** x, None),
-        # Trig (argument multiplied by pi)
-        ("sin(pi*#)", lambda x: sin(pi * x), _0toHalf),
-        ("cos(pi*#)", lambda x: cos(pi * x), _0toHalf),
-        ("tan(pi*#)", lambda x: tan(pi * x), _0toHalf),
-        # Inverse trig
-        ("asin(#)", lambda x: asin(x), _0to1),
-        ("acos(#)", lambda x: acos(x), _0to1),
-        ("atan(#)", lambda x: atan(x), _ge0),
-        ("acot(#)", lambda x: acot(x), _ge0),
-        # Exp / Log
-        ("log(#)", lambda x: log(x), _ge1),
-        ("exp(#)", lambda x: exp(x), None),
-        # Hyperbolic
-        ("sinh(#)", lambda x: sinh(x), _ge0),
-        ("cosh(#)", lambda x: cosh(x), _ge0),
-        ("tanh(#)", lambda x: tanh(x), _ge0),
-        # Inverse hyperbolic
-        ("asinh(#)", lambda x: asinh(x), _ge0),
-        ("acosh(#)", lambda x: acosh(x), _ge1),
-        ("atanh(#)", lambda x: atanh(x), _01open),
-        # Special functions
-        ("zeta(#)", lambda x: zeta(x), None),
-        ("gamma(#)", lambda x: spgamma(x), _0to1),
-        ("polygamma(#)", lambda x: polygamma(0, x), _0to1),
-        ("elliptic_k(#)", lambda x: elliptic_k(x), None),
-        ("elliptic_e(#)", lambda x: elliptic_e(x), None),
-        ("erf(#)", lambda x: erf(x), _ge0),
-        ("erfinv(#)", lambda x: erfinv(x), _01open),
-    ]
-
-
-# ── Precision helpers ───────────────────────────────────────────────────────
-
-def _significant_digits(num: float) -> int:
-    """Auto-detect significant digits of a float, at least 2."""
+def _auto_digits(num: float) -> int:
+    """Count significant digits using Python's shortest-repr heuristic."""
     if num == 0:
         return 1
-    s = f"{num:.17g}"
-    s = s.lstrip("-").lstrip("0").replace(".", "")
-    if "." in f"{num:.17g}":
-        s = s.rstrip("0")
+    s = repr(abs(num))
+    if "e" in s or "E" in s:
+        s = s.split("e")[0].split("E")[0]
+    s = s.replace(".", "").lstrip("0")
     return max(len(s), 2)
 
 
 def _precision_match(num: float, candidate: float, digits: int) -> bool:
-    """Check whether candidate matches num to the required precision."""
+    """True when *candidate* reproduces *num* to *digits* − 1 significant digits."""
     if num == 0:
         return abs(candidate) <= 10 ** (-digits + 1)
-    return abs(1 - candidate / num) <= 10 ** (-digits + 1)
+    return abs(1.0 - candidate / num) <= 10 ** (-digits + 1)
 
 
 def _safe_neval(expr, digits: int = 18) -> Optional[float]:
-    """Numerically evaluate a sympy expression, returning None on failure."""
+    """Numerically evaluate a sympy expression; None on failure or non-real."""
     try:
         val = complex(expr.evalf(n=digits))
         if abs(val.imag) > 1e-15 * max(abs(val.real), 1):
@@ -312,303 +188,398 @@ def _safe_neval(expr, digits: int = 18) -> Optional[float]:
         return None
 
 
-def _to_sympy_arg(a) -> sympy.Basic:
-    """Convert a single argument value to a sympy expression."""
-    if isinstance(a, Fraction):
-        return Rational(a.numerator, a.denominator)
-    if isinstance(a, (int, float)):
-        return nsimplify(a, rational=True)
-    return a
+# ═══════════════════════════════════════════════════════════════════════════════
+# Argument range generation
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _generate_range(
+    cut: int, search_range: str, custom_fn: Optional[Callable] = None,
+) -> list:
+    if custom_fn is not None:
+        return custom_fn(cut)
+    if search_range == "Farey":
+        return _ext_farey_range(-cut, cut, cut)
+    if search_range == "Plain":
+        step = Fraction(1, cut)
+        result, val, end = [], Fraction(-cut), Fraction(cut)
+        while val <= end:
+            result.append(val)
+            val += step
+        return result
+    if search_range == "Integer":
+        return [Fraction(i) for i in range(-cut, cut + 1)]
+    return _ext_farey_range(-cut, cut, cut)
 
 
-# ── Algebraic lookup table ──────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# Algebraic number lookup table  (modifiedRootApproximant)
+#
+# Mirrors the Wolfram ``absLookupBase``.  Positive reals only; sign handled
+# separately.  Built lazily on first use.
+# ═══════════════════════════════════════════════════════════════════════════════
 
-def _build_abs_lookup(max_int: int = 200, farey_order: int = 10,
-                      root_orders: Sequence[int] = (2, 3, 4, 5, 6),
-                      ) -> Tuple[List[sympy.Basic], List[float]]:
+_ABS_LOOKUP_CACHE: Optional[Tuple[list, list, list]] = None
+
+
+def _build_abs_lookup() -> Tuple[List[float], List[Fraction], List[int]]:
     """
-    Build a sorted lookup table of positive algebraic numbers and their
-    float approximations, for use as algebraic factors/addends.
+    Build a sorted lookup table of positive algebraic-number candidates.
+
+    Returns three parallel lists (sorted by float value):
+      values  – float approximations
+      bases   – Fraction bases (p/q)
+      orders  – root order (1 = plain fraction, 2 = sqrt, …)
     """
-    candidates: set = set()
+    seen: set[Tuple[float, int]] = set()
+    entries: list[Tuple[float, Fraction, int]] = []
 
-    for n in range(0, max_int + 1):
-        candidates.add(Integer(n))
+    def _add(fv: float, base: Fraction, order: int) -> None:
+        key = (round(fv, 14), order)
+        if key not in seen and math.isfinite(fv) and fv >= 0:
+            seen.add(key)
+            entries.append((fv, base, order))
 
-    fr = farey_range(0, min(max_int, 100), min(farey_order, 10))
-    for f in fr:
-        candidates.add(Rational(f.numerator, f.denominator) if isinstance(f, Fraction)
-                        else nsimplify(f, rational=True))
+    # 1) Range[0, 10000, 1/10]  – tenths
+    for n in range(0, 100_001):
+        f = Fraction(n, 10)
+        _add(float(f), f, 1)
 
-    fr_small = farey_range(0, min(max_int, 50), min(farey_order, 8))
-    for f in fr_small:
-        val = Rational(f.numerator, f.denominator) if isinstance(f, Fraction) else nsimplify(f, rational=True)
-        if val < 0:
-            continue
-        for order in root_orders:
-            candidates.add(val ** Rational(1, order))
+    # 2) FareyRange[0, 1000, 10]  – simple fractions up to 1000
+    for f in _ext_farey_range(0, 1000, 10):
+        _add(float(f), f, 1)
 
-    table_sym: List[sympy.Basic] = []
-    table_num: List[float] = []
-    for c in candidates:
-        fv = _safe_neval(c)
-        if fv is not None and fv >= 0 and math.isfinite(fv):
-            table_sym.append(c)
-            table_num.append(fv)
+    # 3) Sqrt of FareyRange[0, 100, 50]
+    for f in _ext_farey_range(0, 100, 50):
+        if f >= 0:
+            _add(math.sqrt(float(f)), f, 2)
 
-    pairs = sorted(zip(table_num, table_sym))
-    return [p[1] for p in pairs], [p[0] for p in pairs]
+    # 4) Higher roots of FareyRange[0, 100, 10]
+    for f in _ext_farey_range(0, 100, 10):
+        if f > 0:
+            fv = float(f)
+            for order in (3, 4, 5, 6):
+                _add(fv ** (1.0 / order), f, order)
 
-
-_ABS_LOOKUP: Optional[Tuple[List[sympy.Basic], List[float]]] = None
-
-
-def _get_abs_lookup() -> Tuple[List[sympy.Basic], List[float]]:
-    global _ABS_LOOKUP
-    if _ABS_LOOKUP is None:
-        _ABS_LOOKUP = _build_abs_lookup()
-    return _ABS_LOOKUP
+    entries.sort(key=lambda e: e[0])
+    return (
+        [e[0] for e in entries],
+        [e[1] for e in entries],
+        [e[2] for e in entries],
+    )
 
 
-def _nearest_algebraic(target: float) -> List[sympy.Basic]:
-    """Find algebraic numbers in the lookup table closest to target."""
+def _get_abs_lookup() -> Tuple[List[float], List[Fraction], List[int]]:
+    global _ABS_LOOKUP_CACHE
+    if _ABS_LOOKUP_CACHE is None:
+        _ABS_LOOKUP_CACHE = _build_abs_lookup()
+    return _ABS_LOOKUP_CACHE
+
+
+def _entry_to_sympy(base: Fraction, order: int) -> sympy.Basic:
+    r = Rational(base.numerator, base.denominator)
+    if order == 1:
+        return r
+    return r ** Rational(1, order)
+
+
+def _find_nearest_algebraic(target: float, digits: int) -> List[sympy.Basic]:
+    """Binary-search the lookup table for algebraic numbers ≈ *target*."""
     if not math.isfinite(target):
         return []
-    sym_table, num_table = _get_abs_lookup()
-    if not num_table:
+
+    values, bases, orders = _get_abs_lookup()
+    if not values:
         return []
 
     abs_target = abs(target)
-    sign = 1 if target >= 0 else -1
+    sign = -1 if target < 0 else 1
+    pos = bisect.bisect_left(values, abs_target)
+    results: list[sympy.Basic] = []
 
-    pos = bisect.bisect_left(num_table, abs_target)
-    candidates = []
-    for i in range(max(0, pos - 1), min(len(num_table), pos + 2)):
-        candidates.append(sym_table[i] * sign if sign == -1 else sym_table[i])
-    return candidates
+    for i in range(max(0, pos - 1), min(len(values), pos + 2)):
+        cval = values[i]
+        if cval == 0 and abs_target > 0.01:
+            continue
+        if _precision_match(abs_target, cval, max(digits - 2, 2)):
+            sym = _entry_to_sympy(bases[i], orders[i])
+            results.append(-sym if sign == -1 else sym)
 
-
-def _modified_root_approximant(ratio: float, digits: int) -> List[sympy.Basic]:
-    """Approximate a real number by a simple algebraic number."""
-    if not math.isfinite(ratio):
-        return []
-    candidates = _nearest_algebraic(ratio)
-    result = []
-    for c in candidates:
-        cv = _safe_neval(c)
-        if cv is not None and _precision_match(ratio, cv, max(digits - 2, 2)):
-            result.append(c)
-    return result
+    return results
 
 
-# ── Argument range generation ───────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# Function evaluation over argument ranges
+# ═══════════════════════════════════════════════════════════════════════════════
 
-def _generate_arg_range(cutoff: int) -> List[Fraction]:
-    """Generate argument search range for a given cutoff (round number)."""
-    return farey_range(-cutoff, cutoff, cutoff)
-
-
-# ── Function evaluation (supports any arity) ───────────────────────────────
-
-_MAX_MULTI_ARG_COMBOS = 50_000  # safety cap on cartesian product size
+_MAX_COMBOS = 80_000
 
 
-def _eval_function_over_args(
+def _to_sympy(a) -> sympy.Basic:
+    if isinstance(a, Fraction):
+        return Rational(a.numerator, a.denominator)
+    if isinstance(a, int):
+        return Integer(a)
+    return sympy.sympify(a)
+
+
+def _detect_arity(func: Callable) -> int:
+    try:
+        sig = inspect.signature(func)
+        return sum(
+            1
+            for p in sig.parameters.values()
+            if p.default is inspect.Parameter.empty
+            and p.kind
+            in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        )
+    except (ValueError, TypeError):
+        return 1
+
+
+def _is_identity_func(func: Callable) -> bool:
+    try:
+        x = sympy.Symbol("_x")
+        return func(x) == x
+    except Exception:
+        return False
+
+
+def _eval_func(func: Callable, args_sym: tuple, num_digits: int = 18):
+    """Evaluate *func* on sympy args; return ``(symbolic, float)`` or ``None``."""
+    try:
+        val_sym = func(*args_sym)
+    except Exception:
+        return None
+    val_f = _safe_neval(val_sym, num_digits)
+    if val_f is None or not math.isfinite(val_f):
+        return None
+    return val_sym, val_f
+
+
+def _eval_function_over_range(
     func: Callable,
-    args: List,
-    domain_filter: Optional[Callable],
-    arity: int = 1,
-) -> List[Tuple[tuple, float, sympy.Basic]]:
+    arg_ranges,
+    arity: int,
+    prev_args: set,
+) -> List[Tuple[tuple, sympy.Basic, float]]:
     """
-    Evaluate *func* over argument combinations, filtering by domain.
+    Evaluate *func* over Cartesian-product argument combinations.
 
-    For arity == 1, iterates over *args* directly.
-    For arity > 1, iterates over the cartesian product args^arity.
-
-    Returns list of (arg_tuple, value_float, value_sympy) where arg_tuple
-    is a tuple of sympy expressions (length == arity).
+    *arg_ranges* is either a flat list (arity-1) or a list-of-lists (arity>1).
     """
+    results: list[Tuple[tuple, sympy.Basic, float]] = []
+
     if arity == 1:
-        return _eval_single_arg(func, args, domain_filter)
-    return _eval_multi_arg(func, args, domain_filter, arity)
-
-
-def _eval_single_arg(func, args, domain_filter):
-    """Fast path for single-argument functions."""
-    results = []
-    for a in args:
-        try:
-            af = float(a)
-        except (ValueError, TypeError):
-            continue
-        if domain_filter is not None:
-            try:
-                if not domain_filter(af):
-                    continue
-            except Exception:
+        for a in arg_ranges:
+            key = (a,)
+            if key in prev_args:
                 continue
+            r = _eval_func(func, (_to_sympy(a),))
+            if r is not None:
+                results.append((key, r[0], r[1]))
+    else:
+        if arg_ranges and isinstance(arg_ranges[0], (list, tuple)):
+            per_slot = arg_ranges
+        else:
+            per_slot = [arg_ranges] * arity
 
-        arg_sym = _to_sympy_arg(a)
-        try:
-            val_sym = func(arg_sym)
-        except Exception:
-            continue
+        max_per = max(2, int(_MAX_COMBOS ** (1.0 / arity)))
+        truncated = [r[:max_per] for r in per_slot]
 
-        val_f = _safe_neval(val_sym)
-        if val_f is None or not math.isfinite(val_f) or val_f == 0:
-            continue
-
-        results.append(((arg_sym,), val_f, val_sym))
-    return results
-
-
-def _eval_multi_arg(func, args, domain_filter, arity):
-    """Evaluate a multi-argument function over the cartesian product."""
-    # Limit combinatorial explosion
-    max_per_dim = max(1, int(_MAX_MULTI_ARG_COMBOS ** (1.0 / arity)))
-    truncated = args[:max_per_dim]
-
-    results = []
-    for combo in itertools.product(truncated, repeat=arity):
-        # Convert to floats for domain filter
-        try:
-            combo_f = tuple(float(a) for a in combo)
-        except (ValueError, TypeError):
-            continue
-
-        if domain_filter is not None:
-            try:
-                if not domain_filter(*combo_f):
-                    continue
-            except Exception:
+        for combo in itertools.product(*truncated):
+            if combo in prev_args:
                 continue
+            combo_sym = tuple(_to_sympy(a) for a in combo)
+            r = _eval_func(func, combo_sym)
+            if r is not None:
+                results.append((combo, r[0], r[1]))
 
-        combo_sym = tuple(_to_sympy_arg(a) for a in combo)
-        try:
-            val_sym = func(*combo_sym)
-        except Exception:
-            continue
-
-        val_f = _safe_neval(val_sym)
-        if val_f is None or not math.isfinite(val_f) or val_f == 0:
-            continue
-
-        results.append((combo_sym, val_f, val_sym))
     return results
 
 
-# ── Sub-search rounds ──────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# Sub-search rounds  (None / Times / Plus)
+# ═══════════════════════════════════════════════════════════════════════════════
 
-def _sub_search_none(num, func, args, domain_filter, digits,
-                     complexity_threshold, arity):
-    """Direct matching: find args where func(args...) == num."""
-    evals = _eval_function_over_args(func, args, domain_filter, arity)
-    results = []
-    for _, val_f, val_sym in evals:
-        if _precision_match(num, val_f, digits):
-            fc = formula_complexity(val_sym)
-            if fc <= complexity_threshold:
-                results.append(val_sym)
+def _sub_search_none(
+    num: float,
+    evals: list,
+    digits: int,
+    compl: float,
+    rational_solutions: bool,
+    is_identity: bool,
+) -> List[sympy.Basic]:
+    results: list[sympy.Basic] = []
+    for _, val_sym, val_f in evals:
+        if not _precision_match(num, val_f, digits):
+            continue
+        if not rational_solutions and not is_identity and val_sym.is_Rational:
+            continue
+        if formula_complexity(val_sym) <= compl:
+            results.append(val_sym)
     return results
 
 
-def _sub_search_times(num, func, args, domain_filter, digits,
-                      complexity_threshold, arity):
-    """Multiplicative search: find a * func(args...) == num."""
-    evals = _eval_function_over_args(func, args, domain_filter, arity)
-    results = []
-    for _, val_f, val_sym in evals:
+def _sub_search_times(
+    num: float,
+    evals: list,
+    digits: int,
+    compl: float,
+    rational_solutions: bool,
+    is_identity: bool,
+) -> List[sympy.Basic]:
+    results: list[sympy.Basic] = []
+    for _, val_sym, val_f in evals:
         if val_f == 0:
             continue
         ratio = num / val_f
-        algebraics = _modified_root_approximant(ratio, digits)
-        for alg in algebraics:
+        for alg in _find_nearest_algebraic(ratio, digits):
             candidate = alg * val_sym
             cand_f = _safe_neval(candidate)
-            if cand_f is not None and _precision_match(num, cand_f, digits):
-                fc = formula_complexity(candidate)
-                if fc <= complexity_threshold:
-                    results.append(candidate)
+            if cand_f is None:
+                continue
+            if not _precision_match(num, cand_f, digits):
+                continue
+            if not rational_solutions and not is_identity and candidate.is_Rational:
+                continue
+            if formula_complexity(candidate) <= compl:
+                results.append(candidate)
     return results
 
 
-def _sub_search_plus(num, func, args, domain_filter, digits,
-                     complexity_threshold, arity):
-    """Additive search: find a + func(args...) == num."""
-    evals = _eval_function_over_args(func, args, domain_filter, arity)
-    results = []
-    for _, val_f, val_sym in evals:
+def _sub_search_plus(
+    num: float,
+    evals: list,
+    digits: int,
+    compl: float,
+    rational_solutions: bool,
+    is_identity: bool,
+) -> List[sympy.Basic]:
+    results: list[sympy.Basic] = []
+    for _, val_sym, val_f in evals:
         diff = num - val_f
-        algebraics = _modified_root_approximant(diff, digits)
-        for alg in algebraics:
+        for alg in _find_nearest_algebraic(diff, digits):
             candidate = alg + val_sym
             cand_f = _safe_neval(candidate)
-            if cand_f is not None and _precision_match(num, cand_f, digits):
-                fc = formula_complexity(candidate)
-                if fc <= complexity_threshold:
-                    results.append(candidate)
+            if cand_f is None:
+                continue
+            if not _precision_match(num, cand_f, digits):
+                continue
+            if not rational_solutions and not is_identity and candidate.is_Rational:
+                continue
+            if formula_complexity(candidate) <= compl:
+                results.append(candidate)
     return results
 
 
-# ── Search round ────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# Default function list
+# ═══════════════════════════════════════════════════════════════════════════════
 
-def _search_round(num, func, domain_filter, args, digits,
-                  complexity_threshold, algebraic_factor, algebraic_add,
-                  max_results, arity):
-    """Execute one search round: None, then Times, then Plus."""
-    results = _sub_search_none(
-        num, func, args, domain_filter, digits, complexity_threshold, arity)
-    if len(results) >= max_results:
-        return results
+def _make_default_functions() -> List[Tuple[str, Callable, int]]:
+    """
+    Default functional forms searched when no function is specified.
 
-    if algebraic_factor:
-        res_t = _sub_search_times(
-            num, func, args, domain_filter, digits, complexity_threshold, arity)
-        results.extend(res_t)
-        if len(results) >= max_results:
-            return results
+    Each entry is ``(name, callable, arity)``.
+    Mirrors the WL default list: constants as powers, trig, hyp, special.
+    """
+    return [
+        ("pi^#", lambda x: pi ** x, 1),
+        ("EulerGamma^#", lambda x: EulerGamma ** x, 1),
+        ("Catalan^#", lambda x: Catalan ** x, 1),
+        ("GoldenRatio^#", lambda x: GoldenRatio ** x, 1),
+        ("sin(pi*#)", lambda x: sin(pi * x), 1),
+        ("cos(pi*#)", lambda x: cos(pi * x), 1),
+        ("tan(pi*#)", lambda x: tan(pi * x), 1),
+        ("asin(#)", lambda x: asin(x), 1),
+        ("acos(#)", lambda x: acos(x), 1),
+        ("atan(#)", lambda x: atan(x), 1),
+        ("acot(#)", lambda x: acot(x), 1),
+        ("log(#)", lambda x: log(x), 1),
+        ("exp(#)", lambda x: exp(x), 1),
+        ("sinh(#)", lambda x: sinh(x), 1),
+        ("cosh(#)", lambda x: cosh(x), 1),
+        ("tanh(#)", lambda x: tanh(x), 1),
+        ("asinh(#)", lambda x: asinh(x), 1),
+        ("acosh(#)", lambda x: acosh(x), 1),
+        ("atanh(#)", lambda x: atanh(x), 1),
+        ("acoth(#)", lambda x: acoth(x), 1),
+        ("zeta(#)", lambda x: zeta(x), 1),
+        ("gamma(#)", lambda x: spgamma(x), 1),
+        ("polygamma(#)", lambda x: polygamma(0, x), 1),
+        ("elliptic_k(#)", lambda x: elliptic_k(x), 1),
+        ("elliptic_e(#)", lambda x: elliptic_e(x), 1),
+        ("erf(#)", lambda x: erf(x), 1),
+        ("erfinv(#)", lambda x: erfinv(x), 1),
+        ("airyai(#)", lambda x: airyai(x), 1),
+        ("airybi(#)", lambda x: airybi(x), 1),
+    ]
 
-    if algebraic_add:
-        res_p = _sub_search_plus(
-            num, func, args, domain_filter, digits, complexity_threshold, arity)
-        results.extend(res_p)
 
-    return results
-
-
-# ── Deduplication ───────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# Deduplication and sorting
+# ═══════════════════════════════════════════════════════════════════════════════
 
 def _dedup_results(results: List[sympy.Basic], digits: int) -> List[sympy.Basic]:
-    """Remove results that evaluate to the same number."""
-    seen: Dict[float, sympy.Basic] = {}
+    """Remove structurally identical expressions (like WL ``Union``)."""
+    seen: set = set()
+    out: list = []
     for r in results:
-        fv = _safe_neval(r)
-        if fv is None:
-            continue
-        key = round(fv, digits - 1)
-        if key not in seen or formula_complexity(r) < formula_complexity(seen[key]):
-            seen[key] = r
-    return list(seen.values())
+        if r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
 
 
-# ── Main public API ─────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# Main public API
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _normalize_functions(functions) -> List[Tuple[str, Callable, int]]:
+    """Coerce *functions* to ``[(name, callable, arity), ...]``."""
+    if functions is None:
+        return _make_default_functions()
+
+    if callable(functions) and not isinstance(functions, (list, tuple)):
+        arity = _detect_arity(functions)
+        return [("custom", functions, arity)]
+
+    if isinstance(functions, (list, tuple)):
+        result: list = []
+        for item in functions:
+            if callable(item):
+                arity = _detect_arity(item)
+                name = getattr(item, "__name__", "f")
+                result.append((name, item, arity))
+            elif isinstance(item, tuple):
+                name = item[0] if isinstance(item[0], str) else "f"
+                func = item[1] if len(item) > 1 else item[0]
+                arity = _detect_arity(func)
+                result.append((name, func, arity))
+        return result
+
+    return [("custom", functions, _detect_arity(functions))]
+
 
 def find_closed_form(
     y: Number,
-    functions: Optional[Union[
-        Callable,
-        List[Callable],
-        List[Tuple[str, Callable]],
-        List[Tuple[str, Callable, Optional[Callable]]],
-    ]] = None,
+    functions=None,
     max_results: int = 1,
     *,
     significant_digits: Optional[int] = None,
     formula_complexity_threshold: Optional[float] = None,
     algebraic_factor: bool = True,
     algebraic_add: bool = True,
+    rational_solutions: bool = False,
     max_search_rounds: int = 50,
-) -> List[sympy.Basic]:
+    search_range: str = "Farey",
+    search_range_fn: Optional[Callable] = None,
+    search_arguments: Optional[Union[list, dict]] = None,
+    search_time_limit: float = 3600,
+) -> Union[List[sympy.Basic], sympy.Basic, None]:
     """
     Search for closed-form expressions matching a numerical value.
 
@@ -617,56 +588,35 @@ def find_closed_form(
     y : number
         The target numerical value.
     functions : callable, list, or None
-        Functional forms to search over. Each element can be:
-
-        - A bare callable (arity auto-detected via ``inspect``)::
-
-            lambda x: sin(pi * x)
-            lambda x, y: x * log(y)
-
-        - A tuple ``(name, callable)``
-        - A tuple ``(name, callable, domain_filter)``
-
-        Multi-argument functions are supported: the search evaluates
-        the cartesian product of the argument range for each slot.
-
-        If None, searches over ~27 common single-argument functions.
-
-    max_results : int, default 1
-        Maximum number of results to return.
+        Functional forms to search.  ``None`` uses ~29 common functions.
+    max_results : int
+        Maximum number of results.
     significant_digits : int or None
-        Precision target for matching. Auto-detected from y if None.
+        Precision target.  Auto-detected if None.
     formula_complexity_threshold : float or None
-        Maximum allowed complexity. Auto-scaled if None.
-    algebraic_factor : bool, default True
-        Enable multiplicative algebraic combinations ``a * f(b, ...)``.
-    algebraic_add : bool, default True
-        Enable additive algebraic combinations ``a + f(b, ...)``.
-    max_search_rounds : int, default 50
-        Maximum number of argument-range expansion rounds.
+        Maximum allowed complexity.  Auto-scaled per round if None.
+    algebraic_factor : bool
+        Enable multiplicative algebraic combinations.
+    algebraic_add : bool
+        Enable additive algebraic combinations.
+    rational_solutions : bool
+        Allow purely rational results.
+    max_search_rounds : int
+        Maximum argument-range expansion rounds.
+    search_range : str
+        ``"Farey"``, ``"Plain"``, or ``"Integer"``.
+    search_range_fn : callable or None
+        Custom ``f(cut) → list`` for argument generation.
+    search_arguments : list, dict, or None
+        Fixed argument values instead of auto-generated ranges.
+    search_time_limit : float
+        Maximum seconds for the search.
 
     Returns
     -------
-    list[sympy.Expr]
-        Closed-form expressions sorted by complexity.
-
-    Examples
-    --------
-    >>> from find_closed_form import find_closed_form
-    >>> find_closed_form(0.7071067811865476)  # sqrt(2)/2
-    [sqrt(2)/2]
-
-    >>> from sympy import sin, pi
-    >>> find_closed_form(0.5, functions=lambda x: sin(pi * x))
-    [sin(pi/6)]
-
-    Multi-argument:
-
-    >>> from sympy import log
-    >>> find_closed_form(1.6094379124341003,
-    ...                  functions=lambda x, y: x * log(y))
-    [log(5)]
+    Single sympy expression, list, or None.
     """
+    # ── normalise input ──────────────────────────────────────────────────
     if isinstance(y, sympy.Basic):
         num = float(y.evalf(n=18))
     elif isinstance(y, Fraction):
@@ -677,56 +627,105 @@ def find_closed_form(
     if not math.isfinite(num):
         raise FindClosedFormError(f"Input must be a finite number, got {y}")
 
-    if significant_digits is not None:
-        digits = significant_digits
-    else:
-        digits = _significant_digits(num)
+    digits = significant_digits if significant_digits is not None else _auto_digits(num)
+    func_list = _normalize_functions(functions)
 
-    # ── Normalise function list with arity ─────────────────────────────
-    # Each entry: (name, callable, domain_filter, arity)
-    func_list: List[Tuple[str, Callable, Optional[Callable], int]] = []
-    if functions is None:
-        for name, fn, dom in _make_default_functions():
-            func_list.append((name, fn, dom, 1))
-    elif callable(functions) and not isinstance(functions, list):
-        arity = _func_arity(functions)
-        func_list.append(("custom", functions, None, arity))
-    else:
-        for item in functions:
-            if callable(item):
-                arity = _func_arity(item)
-                func_list.append(
-                    (getattr(item, "__name__", "f"), item, None, arity))
-            elif isinstance(item, tuple):
-                fn = item[1]
-                arity = _func_arity(fn)
-                dom = item[2] if len(item) >= 3 else None
-                func_list.append((item[0], fn, dom, arity))
+    eff_rational = rational_solutions
+    if not algebraic_factor and not algebraic_add:
+        eff_rational = True
 
     all_results: List[sympy.Basic] = []
+    start_time = time.time()
+    prev_args: dict[int, set] = {i: set() for i in range(len(func_list))}
 
-    for cutoff in range(1, max_search_rounds + 1):
-        arg_range = _generate_arg_range(cutoff)
+    # ── fixed search-arguments mode (single pass, no rounds) ─────────
+    if search_arguments is not None:
+        for fi, (name, func, arity) in enumerate(func_list):
+            if time.time() - start_time > search_time_limit:
+                break
+            is_identity = _is_identity_func(func)
+            compl = formula_complexity_threshold if formula_complexity_threshold else 50.0
 
-        for name, func, domain, arity in func_list:
-            # Dynamic complexity threshold for this round
+            if arity == 1:
+                raw = search_arguments
+                if raw and isinstance(raw[0], (list, tuple)):
+                    raw = raw[0]
+                frac_args = [Fraction(a) if isinstance(a, (int, float)) else a for a in raw]
+                evals = _eval_function_over_range(func, frac_args, arity, set())
+            else:
+                if isinstance(search_arguments, (list, tuple)):
+                    if search_arguments and isinstance(search_arguments[0], (list, tuple)):
+                        slot_ranges = [
+                            [Fraction(a) if isinstance(a, (int, float)) else a for a in sl]
+                            for sl in search_arguments
+                        ]
+                    else:
+                        slot_ranges = [
+                            [Fraction(a) if isinstance(a, (int, float)) else a for a in search_arguments]
+                        ] * arity
+                else:
+                    slot_ranges = [search_arguments] * arity
+                evals = _eval_function_over_range(func, slot_ranges, arity, set())
+
+            rr = _sub_search_none(num, evals, digits, compl, eff_rational, is_identity)
+            if algebraic_factor:
+                rr.extend(_sub_search_times(num, evals, digits, compl, eff_rational, is_identity))
+            if algebraic_add:
+                rr.extend(_sub_search_plus(num, evals, digits, compl, eff_rational, is_identity))
+            all_results.extend(rr)
+
+        all_results = _dedup_results(all_results, digits)
+        all_results.sort(key=formula_complexity)
+        all_results = all_results[:max_results]
+        if max_results == 1:
+            return all_results[0] if all_results else None
+        return all_results
+
+    # ── main search loop over progressively larger argument ranges ────
+    for cut in range(1, max_search_rounds + 1):
+        if time.time() - start_time > search_time_limit:
+            break
+
+        arg_range = _generate_range(cut, search_range, search_range_fn)
+
+        for fi, (name, func, arity) in enumerate(func_list):
+            if time.time() - start_time > search_time_limit:
+                break
+
             if formula_complexity_threshold is not None:
                 compl = formula_complexity_threshold
             else:
-                range_compl = formula_complexity(Integer(cutoff))
-                # Scale with sqrt(arity), matching WL:
-                #   0.5 * (1 + sqrt(n_slots)) * (15 + range_complexity)
+                max_elem = max(arg_range, key=lambda a: abs(float(a)))
+                range_compl = formula_complexity(_to_sympy(max_elem))
                 compl = 0.5 * (1 + math.sqrt(arity)) * (15 + range_compl)
 
-            round_results = _search_round(
-                num, func, domain, arg_range, digits, compl,
-                algebraic_factor, algebraic_add, max_results, arity,
-            )
-            all_results.extend(round_results)
+            is_identity = _is_identity_func(func)
+
+            if arity == 1:
+                evals = _eval_function_over_range(func, arg_range, arity, prev_args[fi])
+            else:
+                evals = _eval_function_over_range(
+                    func, [arg_range] * arity, arity, prev_args[fi],
+                )
+
+            for args_tuple, _, _ in evals:
+                prev_args[fi].add(args_tuple)
+
+            rr = _sub_search_none(num, evals, digits, compl, eff_rational, is_identity)
+            if algebraic_factor:
+                rr.extend(_sub_search_times(num, evals, digits, compl, eff_rational, is_identity))
+            if algebraic_add:
+                rr.extend(_sub_search_plus(num, evals, digits, compl, eff_rational, is_identity))
+
+            all_results.extend(rr)
 
         all_results = _dedup_results(all_results, digits)
         if len(all_results) >= max_results:
             break
 
     all_results.sort(key=formula_complexity)
-    return all_results[:max_results]
+    all_results = all_results[:max_results]
+
+    if max_results == 1:
+        return all_results[0] if all_results else None
+    return all_results

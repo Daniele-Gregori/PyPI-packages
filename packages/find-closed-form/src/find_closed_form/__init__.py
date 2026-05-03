@@ -1,6 +1,6 @@
 """find_closed_form — Find closed-form expressions for numerical values."""
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
 __author__ = "Daniele Gregori"
 
 from find_closed_form.core import (
