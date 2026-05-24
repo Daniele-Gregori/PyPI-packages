@@ -12,6 +12,8 @@ Packages currently hosted on the Python Package Index (PyPI):
 
 * [find-closed-form](https://pypi.org/project/find-closed-form/): find closed-form expressions for numerical values;
 
+* [gallop-search](https://pypi.org/project/gallop-search/): binary search from an arbitrary position in sorted sequences;
+
 * [partition-while](https://pypi.org/project/partition-while/): partition a list by a condition on the sublists;
 
 * [spreadsheet-toolkit](https://pypi.org/project/spreadsheet-toolkit/): spreadsheet utilities;
