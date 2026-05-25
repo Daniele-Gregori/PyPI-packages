@@ -18,6 +18,8 @@ Packages currently hosted on the Python Package Index (PyPI):
 
 * [spreadsheet-toolkit](https://pypi.org/project/spreadsheet-toolkit/): spreadsheet utilities;
 
+* [tba-solve](https://pypi.org/project/tba-solve/): numerical solver for Thermodynamic Bethe Ansatz integral equations;
+
 * [transform-tabular](https://pypi.org/project/transform-tabular/): apply a single function across an entire DataFrame;
 
 * [transcendental-range](https://pypi.org/project/transcendental-range/): generate ranges of transcendental numbers.

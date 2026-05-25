@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tba-solve"
+version = "0.2.0"
+description = "Numerical solver for Thermodynamic Bethe Ansatz integral equations"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Daniele Gregori", email = "dangregori@gmail.com" },
+]
+maintainers = [
+    { name = "Daniele Gregori", email = "dangregori@gmail.com" },
+]
+keywords = [
+    "thermodynamic-bethe-ansatz",
+    "bethe-ansatz",
+    "bethe",
+    "integral-equations",
+    "nonlinear-equations",
+    "numerical-methods",
+    "integrability",
+    "mathematical-physics",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "numpy>=1.22",
+    "scipy>=1.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/tba-solve"
+Documentation = "https://resources.wolframcloud.com/FunctionRepository/resources/ThermodynamicBetheAnsatzSolve/"
+Repository = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/tba-solve"
+Issues = "https://github.com/Daniele-Gregori/PyPI-packages/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
