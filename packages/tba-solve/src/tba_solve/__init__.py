@@ -4,7 +4,7 @@ A Python translation of the ThermodynamicBetheAnsatzSolve Wolfram Language
 resource function, contributed by Daniele Gregori.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__ = "Daniele Gregori"
 
 from tba_solve.solver import TBASolver, TBASolution
