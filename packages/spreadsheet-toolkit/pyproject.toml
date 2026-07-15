@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "spreadsheet-toolkit"
-version = "0.1.0"
-description = "Spreadsheet utilities for Python"
+version = "0.6.0"
+description = "Tools for spreadsheet analysis: formula dependency tracing, import, and cell reference conversion"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
@@ -20,11 +20,13 @@ keywords = [
     "excel",
     "cell-reference",
     "formula",
+    "trace",
+    "dependencies",
     "import",
     "wolfram",
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",

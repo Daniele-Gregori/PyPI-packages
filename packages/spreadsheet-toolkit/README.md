@@ -5,10 +5,7 @@
 [![Python](https://img.shields.io/pypi/pyversions/spreadsheet-toolkit.svg)](https://pypi.org/project/spreadsheet-toolkit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Spreadsheet utilities for Python.
-
-> **Status:** early development (v0.1.0).
-
+Tools and utilities for spreadsheet analysis: formula **dependency tracing**, workbook import, and cell reference conversion.
 
 ## Installation
 
@@ -22,94 +19,117 @@ pip install spreadsheet-toolkit
 
 ## Usage
 
-### `import_sheets`
+### `spreadsheet_trace`
 
-Return the list of sheet names in a workbook.
+Trace all the formula dependencies of a spreadsheet cell, recursively, down to the elementary value cells. The output closely mirrors the Wolfram Language [`Trace`](https://reference.wolfram.com/language/ref/Trace.html): each traced cell produces `[cell, formula, subtraces...]` and each leaf cell produces `[cell, value]`.
 
 ```python
-from spreadsheet_toolkit import import_sheets
+from spreadsheet_toolkit import spreadsheet_trace
 
-import_sheets("budget.xlsx")
-# ['Income', 'Expenses', 'Summary']
+spreadsheet_trace("book.xlsx", "D1")
+# ['D1', 'C1*2', ['C1', 'A1+B1', ['A1', 10], ['B1', 20]]]
 ```
 
-### `import_cells`
-
-Import cell values from a spreadsheet. Optionally select a sheet (by name or 1-based index) and a row/column range.
+Cell ranges are expanded, and absolute references (`$B$10`) are followed like plain ones:
 
 ```python
-from spreadsheet_toolkit import import_cells
+spreadsheet_trace("sales.xlsx", "F2")
+# ['F2', 'E2*$B$10', ['E2', 'C2*D2', ['C2', 25.5], ['D2', 100]], ['B10', 0.22]]
 
-# All cells from the active sheet
-import_cells("data.xlsx")
-# [[10, 20, 30], ['hello', 'world', None], [3.14, True, None]]
-
-# A specific sheet by name
-import_cells("data.xlsx", sheet="Summary")
-# [['total', 150]]
-
-# A specific sheet by index
-import_cells("data.xlsx", sheet=2)
-
-# Rows 2-3, columns 1-2
-import_cells("data.xlsx", rows=(2, 3), columns=(1, 2))
-# [['hello', 'world'], [3.14, True]]
+spreadsheet_trace("data.xlsx", "B1")
+# ['B1', 'SUM(A1:A3)', ['A1', 15], ['A2', 22], ['A3', 8]]
 ```
 
-### `import_formulas`
-
-Like `import_cells`, but formula cells return their formula string instead of the computed value.
+Cross-sheet references and column ranges (e.g. `Products!A:C`, expanded across all rows of the referenced sheet) are supported:
 
 ```python
-from spreadsheet_toolkit import import_formulas
+spreadsheet_trace("report.xlsx", "Summary!B3")
+# ['Summary!B3', 'Input!B14', ['Input!B14', 'SUM(B2:B13)', ['B2', 12000.0], ...]]
 
-import_formulas("data.xlsx")
-# [[10, 20, '=A1+B1'], ['hello', 'world', None], [3.14, True, '=SUM(A1:B1)']]
-
-import_formulas("data.xlsx", sheet="Summary")
-# [['total', '=Data!A1+Data!B1']]
+spreadsheet_trace("orders.xlsx", "Orders!D2")
+# ['Orders!D2', 'VLOOKUP(B2,Products!A:C,3,FALSE)', ['B2', 101],
+#  ['Products!A1', 'ProductID'], ['Products!A2', 101], ...]
 ```
 
-### `spreadsheet_index_to_position`
-
-Convert a cell reference (e.g. `"A1"`, `"AA12"`) to a `(row, column)` tuple with 1-based indices.
+By default duplicate dependency branches are kept, mirroring the repeated occurrences of a cell in the formulas; pass `trace_duplicates=False` to trace each referenced cell only once per formula:
 
 ```python
-from spreadsheet_toolkit import spreadsheet_index_to_position
+spreadsheet_trace("data.xlsx", "C5", trace_duplicates=False)
+```
 
-spreadsheet_index_to_position("A1")
+Instead of a file path, a `(sheets, data, formulas)` triple as returned by `import_all` can be passed directly:
+
+```python
+from spreadsheet_toolkit import import_all, spreadsheet_trace
+
+book = import_all("book.xlsx")
+spreadsheet_trace(book, "D1")
+```
+
+### `import_all`
+
+Import sheet names, cell values and formulas from a workbook, in one call. Repeated imports of the same (unmodified) file return a cached result.
+
+```python
+from spreadsheet_toolkit import import_all
+
+sheets, data, formulas = import_all("book.xlsx")
+
+sheets
+# ['Data', 'Summary']
+
+data[0]       # 2D list of cell values of the first sheet ("" for empty cells)
+# [[10, 20, ''], ['hello', 'world', '']]
+
+formulas[0]   # same shape: formula strings without "=", "" for non-formula cells
+# [['', '', 'A1+B1'], ['', '', '']]
+```
+
+### `index_to_position`
+
+Convert a cell reference (plain or absolute) to a `(row, column)` tuple with 1-based indices.
+
+```python
+from spreadsheet_toolkit import index_to_position
+
+index_to_position("A1")
 # (1, 1)
 
-spreadsheet_index_to_position("C5")
+index_to_position("C5")
 # (5, 3)
 
-spreadsheet_index_to_position("AA1")
+index_to_position("AA1")
 # (1, 27)
+
+index_to_position("$B$10")
+# (10, 2)
 ```
 
-### `position_to_spreadsheet_index`
+### `position_to_index`
 
 Convert a `(row, column)` position back to a cell reference string.
 
 ```python
-from spreadsheet_toolkit import position_to_spreadsheet_index
+from spreadsheet_toolkit import position_to_index
 
-position_to_spreadsheet_index(1, 1)
+position_to_index((1, 1))
 # 'A1'
 
-position_to_spreadsheet_index(5, 3)
+position_to_index((5, 3))
 # 'C5'
 
-position_to_spreadsheet_index(1, 27)
+position_to_index((1, 27))
 # 'AA1'
 ```
 
 ## See also
 
-This Python package includes a translation of the following **Wolfram Language** functions:
+This Python package is a translation of the following **Wolfram Language** functions:
 
-- [**SpreadsheetIndexToPosition**](https://resources.wolframcloud.com/FunctionRepository/resources/SpreadsheetIndexToPosition) (resource function by S. Smit)
-- [**PositionToSpreadsheetIndex**](https://resources.wolframcloud.com/FunctionRepository/resources/PositionToSpreadsheetIndex) (resource function by S. Smit)
+- [**SpreadsheetTrace**](https://resources.wolframcloud.com/FunctionRepository/resources/SpreadsheetTrace) (resource function by Daniele Gregori)
+- the `SpreadsheetToolkit` package by Daniele Gregori, in turn based on:
+  - [**SpreadsheetIndexToPosition**](https://resources.wolframcloud.com/FunctionRepository/resources/SpreadsheetIndexToPosition) (resource function by S. Smit)
+  - [**PositionToSpreadsheetIndex**](https://resources.wolframcloud.com/FunctionRepository/resources/PositionToSpreadsheetIndex) (resource function by S. Smit)
 
 ## License
 

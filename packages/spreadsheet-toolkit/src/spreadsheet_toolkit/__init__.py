@@ -1,20 +1,23 @@
-"""spreadsheet_toolkit — Spreadsheet utilities for Python."""
+"""spreadsheet_toolkit — Tools for spreadsheet analysis.
 
-__version__ = "0.1.0"
+Python port of the Wolfram Language package
+``DanieleGregori`SpreadsheetToolkit`` and of the Wolfram resource function
+``SpreadsheetTrace``.
+"""
+
+__version__ = "0.6.0"
 __author__ = "Daniele Gregori"
 
 from spreadsheet_toolkit.core import (
-    spreadsheet_index_to_position,
-    position_to_spreadsheet_index,
-    import_sheets,
-    import_cells,
-    import_formulas,
+    import_all,
+    index_to_position,
+    position_to_index,
 )
+from spreadsheet_toolkit.trace import spreadsheet_trace
 
 __all__ = [
-    "spreadsheet_index_to_position",
-    "position_to_spreadsheet_index",
-    "import_sheets",
-    "import_cells",
-    "import_formulas",
+    "import_all",
+    "index_to_position",
+    "position_to_index",
+    "spreadsheet_trace",
 ]

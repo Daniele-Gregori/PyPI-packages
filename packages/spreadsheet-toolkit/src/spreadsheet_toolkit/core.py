@@ -1,4 +1,11 @@
-"""Core spreadsheet utility functions."""
+"""Core spreadsheet utilities.
+
+Python port of the Wolfram Language package ``DanieleGregori`SpreadsheetToolkit```:
+
+- ``import_all``        <-> ``ImportAll``
+- ``index_to_position`` <-> ``IndexToPosition``
+- ``position_to_index`` <-> ``PositionToIndex``
+"""
 
 from __future__ import annotations
 
@@ -8,69 +15,166 @@ from typing import Any, Union
 
 import openpyxl
 
-_CELL_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
+try:
+    from openpyxl.worksheet.formula import ArrayFormula
+except ImportError:  # pragma: no cover - very old openpyxl
+    ArrayFormula = ()
+
+# ---------------------------------------------------------------------------
+# ImportAll
+# ---------------------------------------------------------------------------
+
+# Mirrors ResourceFunction["ImportOnce"]: repeated imports of the same
+# (unmodified) file return the cached result.
+_import_cache: dict = {}
 
 
-def _col_label_to_number(label: str) -> int:
-    """Convert a column label like 'A', 'Z', 'AA' to a 1-based column number."""
-    n = 0
-    for ch in label.upper():
-        n = n * 26 + (ord(ch) - ord("A") + 1)
-    return n
+def import_all(file: Union[str, Path]) -> tuple:
+    """Import sheet names, data and formulas from a spreadsheet file.
+
+    Mirrors ``ImportAll[file]``, i.e. the Wolfram Language import
+    ``Import[file, {{"Sheets", "Data", "Formulas"}}]`` cached with
+    ``ImportOnce``.
+
+    Parameters
+    ----------
+    file : str or Path
+        Path to an ``.xlsx`` file.
+
+    Returns
+    -------
+    tuple
+        ``(sheets, data, formulas)`` where ``sheets`` is the list of sheet
+        names, ``data`` is a list (one entry per sheet) of 2D lists of cell
+        values, and ``formulas`` is a list of same-shaped 2D lists holding the
+        formula string (without the leading ``=``) for formula cells and
+        ``""`` elsewhere. Empty data cells are also ``""``.
+
+    Examples
+    --------
+    >>> sheets, data, formulas = import_all("book.xlsx")  # doctest: +SKIP
+    """
+    path = Path(file).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"No such spreadsheet file: {str(path)!r}")
+
+    key = (str(path), path.stat().st_mtime_ns)
+    cached = _import_cache.get(key)
+    if cached is not None:
+        return cached
+
+    wb_values = openpyxl.load_workbook(path, data_only=True)
+    wb_formulas = openpyxl.load_workbook(path, data_only=False)
+    try:
+        sheets = list(wb_formulas.sheetnames)
+        data = []
+        formulas = []
+        for name in sheets:
+            grid_values, grid_formulas = _sheet_grids(wb_values[name], wb_formulas[name])
+            data.append(grid_values)
+            formulas.append(grid_formulas)
+    finally:
+        wb_values.close()
+        wb_formulas.close()
+
+    result = (sheets, data, formulas)
+    _import_cache[key] = result
+    return result
 
 
-def _number_to_col_label(n: int) -> str:
-    """Convert a 1-based column number to a column label like 'A', 'Z', 'AA'."""
-    if n < 1:
-        raise ValueError(f"Column number must be >= 1, got {n}")
-    letters = []
-    while n > 0:
-        n, rem = divmod(n - 1, 26)
-        letters.append(chr(ord("A") + rem))
-    return "".join(reversed(letters))
+def _sheet_grids(ws_values, ws_formulas) -> tuple:
+    """Build the (data, formulas) grids of one worksheet.
+
+    Following the Wolfram "Data"/"Formulas" import elements: empty cells and
+    the data entries of formula cells become ``""``; the formulas grid holds
+    ``""`` for non-formula cells and the formula string without ``=``.
+    """
+    max_row = ws_formulas.max_row
+    max_col = ws_formulas.max_column
+    grid_values: list = []
+    grid_formulas: list = []
+    rows_v = ws_values.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col)
+    rows_f = ws_formulas.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col)
+    for row_v, row_f in zip(rows_v, rows_f):
+        values_row: list = []
+        formulas_row: list = []
+        for cell_v, cell_f in zip(row_v, row_f):
+            raw_formula = cell_f.value
+            if isinstance(raw_formula, ArrayFormula):
+                raw_formula = raw_formula.text or ""
+            if isinstance(raw_formula, str) and raw_formula.startswith("="):
+                formulas_row.append(raw_formula[1:])
+            else:
+                formulas_row.append("")
+            value = cell_v.value
+            values_row.append("" if value is None else value)
+        grid_values.append(values_row)
+        grid_formulas.append(formulas_row)
+    return grid_values, grid_formulas
 
 
-def spreadsheet_index_to_position(index: str) -> tuple[int, int]:
-    """Convert a spreadsheet cell reference to a (row, column) position.
+# ---------------------------------------------------------------------------
+# IndexToPosition
+# ---------------------------------------------------------------------------
+
+_INDEX_RE = re.compile(r"\$?([A-Za-z]+)\$?(\d+)")
+
+
+def index_to_position(index: str) -> tuple:
+    """Convert a spreadsheet cell reference to a ``(row, column)`` position.
+
+    Mirrors ``IndexToPosition[cellpatt]``: the row is the number in the
+    reference, the column is the base-26 value of the letters; ``$`` markers
+    of absolute references are ignored.
 
     Parameters
     ----------
     index : str
-        A cell reference such as ``"A1"``, ``"B3"``, or ``"AA12"``.
+        A cell reference such as ``"A1"``, ``"AA12"`` or ``"$B$10"``.
 
     Returns
     -------
-    tuple[int, int]
+    tuple
         ``(row, column)`` with 1-based indices.
 
     Examples
     --------
-    >>> spreadsheet_index_to_position("A1")
+    >>> index_to_position("A1")
     (1, 1)
-    >>> spreadsheet_index_to_position("C5")
+    >>> index_to_position("C5")
     (5, 3)
-    >>> spreadsheet_index_to_position("AA1")
+    >>> index_to_position("AA1")
     (1, 27)
+    >>> index_to_position("$B$10")
+    (10, 2)
     """
-    m = _CELL_RE.match(index)
-    if m is None:
+    if not isinstance(index, str):
+        raise TypeError(f"Cell reference must be a string, got {type(index).__name__}")
+    match = _INDEX_RE.fullmatch(index)
+    if match is None:
         raise ValueError(f"Invalid cell reference: {index!r}")
-    col_label, row_str = m.group(1), m.group(2)
-    row = int(row_str)
-    if row < 1:
-        raise ValueError(f"Row number must be >= 1, got {row}")
-    return (row, _col_label_to_number(col_label))
+    letters, row = match.group(1), int(match.group(2))
+    column = 0
+    for char in letters.upper():
+        column = column * 26 + (ord(char) - ord("A") + 1)
+    return (row, column)
 
 
-def position_to_spreadsheet_index(row: int, column: int) -> str:
-    """Convert a (row, column) position to a spreadsheet cell reference.
+# ---------------------------------------------------------------------------
+# PositionToIndex
+# ---------------------------------------------------------------------------
+
+
+def position_to_index(position) -> str:
+    """Convert a ``(row, column)`` position to a spreadsheet cell reference.
+
+    Mirrors ``PositionToIndex[{r, c}]``: the column number is written in
+    bijective base 26 with letters ``A``-``Z`` and the row is appended.
 
     Parameters
     ----------
-    row : int
-        1-based row number.
-    column : int
-        1-based column number.
+    position : sequence of two ints
+        ``(row, column)`` with 1-based indices.
 
     Returns
     -------
@@ -79,133 +183,22 @@ def position_to_spreadsheet_index(row: int, column: int) -> str:
 
     Examples
     --------
-    >>> position_to_spreadsheet_index(1, 1)
+    >>> position_to_index((1, 1))
     'A1'
-    >>> position_to_spreadsheet_index(5, 3)
+    >>> position_to_index((5, 3))
     'C5'
-    >>> position_to_spreadsheet_index(1, 27)
+    >>> position_to_index((1, 27))
     'AA1'
     """
+    row, column = position
+    if not isinstance(row, int) or not isinstance(column, int):
+        raise TypeError(f"Position must be a pair of ints, got {position!r}")
     if row < 1:
         raise ValueError(f"Row must be >= 1, got {row}")
     if column < 1:
         raise ValueError(f"Column must be >= 1, got {column}")
-    return f"{_number_to_col_label(column)}{row}"
-
-
-def import_sheets(path: Union[str, Path]) -> list[str]:
-    """Return the list of sheet names in a spreadsheet file.
-
-    Parameters
-    ----------
-    path : str or Path
-        Path to an ``.xlsx`` file.
-
-    Returns
-    -------
-    list[str]
-        Sheet names in workbook order.
-    """
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    try:
-        return list(wb.sheetnames)
-    finally:
-        wb.close()
-
-
-def import_cells(
-    path: Union[str, Path],
-    sheet: Union[str, int, None] = None,
-    rows: Union[tuple[int, int], None] = None,
-    columns: Union[tuple[int, int], None] = None,
-) -> list[list[Any]]:
-    """Import cell values from a spreadsheet.
-
-    Parameters
-    ----------
-    path : str or Path
-        Path to an ``.xlsx`` file.
-    sheet : str, int, or None
-        Sheet name (str) or 1-based index (int). ``None`` uses the active sheet.
-    rows : tuple[int, int] or None
-        ``(first_row, last_row)`` inclusive, 1-based. ``None`` reads all rows.
-    columns : tuple[int, int] or None
-        ``(first_col, last_col)`` inclusive, 1-based. ``None`` reads all columns.
-
-    Returns
-    -------
-    list[list[Any]]
-        A 2D list of cell values (one inner list per row).
-    """
-    return _import_sheet(path, sheet, rows, columns, formulas=False)
-
-
-def import_formulas(
-    path: Union[str, Path],
-    sheet: Union[str, int, None] = None,
-    rows: Union[tuple[int, int], None] = None,
-    columns: Union[tuple[int, int], None] = None,
-) -> list[list[Any]]:
-    """Import cell formulas from a spreadsheet.
-
-    Cells that contain a formula return the formula string (e.g.
-    ``"=A1+B1"``). Cells without a formula return their value.
-
-    Parameters
-    ----------
-    path : str or Path
-        Path to an ``.xlsx`` file.
-    sheet : str, int, or None
-        Sheet name (str) or 1-based index (int). ``None`` uses the active sheet.
-    rows : tuple[int, int] or None
-        ``(first_row, last_row)`` inclusive, 1-based. ``None`` reads all rows.
-    columns : tuple[int, int] or None
-        ``(first_col, last_col)`` inclusive, 1-based. ``None`` reads all columns.
-
-    Returns
-    -------
-    list[list[Any]]
-        A 2D list where formula cells contain their formula string.
-    """
-    return _import_sheet(path, sheet, rows, columns, formulas=True)
-
-
-def _resolve_sheet(wb: openpyxl.Workbook, sheet: Union[str, int, None]):
-    if sheet is None:
-        return wb.active
-    if isinstance(sheet, int):
-        if sheet < 1 or sheet > len(wb.sheetnames):
-            raise ValueError(
-                f"Sheet index {sheet} out of range (workbook has {len(wb.sheetnames)} sheets)"
-            )
-        return wb[wb.sheetnames[sheet - 1]]
-    if sheet not in wb.sheetnames:
-        raise ValueError(f"Sheet {sheet!r} not found (available: {wb.sheetnames})")
-    return wb[sheet]
-
-
-def _import_sheet(
-    path: Union[str, Path],
-    sheet: Union[str, int, None],
-    rows: Union[tuple[int, int], None],
-    columns: Union[tuple[int, int], None],
-    formulas: bool,
-) -> list[list[Any]]:
-    wb = openpyxl.load_workbook(path, read_only=False, data_only=not formulas)
-    try:
-        ws = _resolve_sheet(wb, sheet)
-
-        min_row = rows[0] if rows else 1
-        max_row = rows[1] if rows else ws.max_row
-        min_col = columns[0] if columns else 1
-        max_col = columns[1] if columns else ws.max_column
-
-        result = []
-        for row in ws.iter_rows(
-            min_row=min_row, max_row=max_row,
-            min_col=min_col, max_col=max_col,
-        ):
-            result.append([cell.value for cell in row])
-        return result
-    finally:
-        wb.close()
+    letters = []
+    while column > 0:
+        column, remainder = divmod(column - 1, 26)
+        letters.append(chr(ord("A") + remainder))
+    return "".join(reversed(letters)) + str(row)
