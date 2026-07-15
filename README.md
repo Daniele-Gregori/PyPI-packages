@@ -16,7 +16,7 @@ Packages currently hosted on the Python Package Index (PyPI):
 
 * [partition-while](https://pypi.org/project/partition-while/): partition a list by a condition on the sublists;
 
-* [spreadsheet-toolkit](https://pypi.org/project/spreadsheet-toolkit/): spreadsheet utilities;
+* [spreadsheet-toolkit](https://pypi.org/project/spreadsheet-toolkit/): tools and utilities for spreadsheet analysis;
 
 * [tba-solve](https://pypi.org/project/tba-solve/): numerical solver for Thermodynamic Bethe Ansatz integral equations;
 
@@ -25,7 +25,6 @@ Packages currently hosted on the Python Package Index (PyPI):
 * [transcendental-range](https://pypi.org/project/transcendental-range/): generate ranges of transcendental numbers.
 
 
-*More on the way!*
 
 These packages are mostly direct translations of the corresponding [Wolfram resource functions](https://github.com/Daniele-Gregori/ResourceFunctions/).
 

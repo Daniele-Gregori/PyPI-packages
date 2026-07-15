@@ -27,6 +27,6 @@ The 0.1.x names remain available, consistent with the new API:
 - `position_to_spreadsheet_index` takes a single `(row, column)` pair instead of two arguments.
 - Absolute references (`$A$1`) are accepted by the index conversion functions instead of raising `ValueError`.
 
-## 0.1.0 — 2025
+## 0.1.0 — 2026-05-20
 
 Initial release: `import_sheets`, `import_cells`, `import_formulas`, `spreadsheet_index_to_position`, `position_to_spreadsheet_index`.
