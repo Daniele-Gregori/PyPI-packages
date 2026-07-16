@@ -7,6 +7,44 @@ originally contributed by Daniele Gregori.
 The algorithm searches for closed-form mathematical expressions that match a
 given numerical value by evaluating candidate functions over Farey-based
 argument ranges and testing digit-level agreement.
+
+Implementation notes (differences from the WL original)
+-------------------------------------------------------
+Ported from the published resource function 1.0.0 plus the bug fixes of
+its working kernels 1.0.0.1-1.0.0.4 (``formula_complexity`` weights,
+complexity thresholds, the ``erfc`` and ``Ei`` default functions).
+
+Options: 10 of the 15 WL options are ported with matching defaults
+(``SignificantDigits``, ``FormulaComplexity``, ``AlgebraicFactor``,
+``AlgebraicAdd``, ``RationalSolutions``, ``SearchArguments``,
+``SearchRange``, ``MaxSearchRounds``, ``SearchTimeLimit``,
+``MonitorSearch``).  Not ported: ``WolframAlphaQueries`` and
+``SearchQueries`` (the WolframAlpha integration — this package is
+offline by design), ``RootApproximantMethod`` (the lookup-table method
+is always used), ``OutputArguments`` and ``SearchComplex`` (deferred).
+Python-only additions: ``search_range_options``, ``search_range_fn``
+and the ``"Algebraic"``/``"Transcendental"`` search ranges.
+
+Default functions: 31 of the WL 34 — ``Glaisher^#``, ``Khinchin^#`` and
+``BarnesG`` are omitted, having no sympy symbolic equivalents.
+
+Search internals: the WL ``functionChamber`` argument chambers (a
+per-function argument restriction speeding up the algebraic-combination
+steps, noticeable on multi-argument searches) and the
+``simplifyRational`` cleanup of rational factors are not yet ported.
+Since sympy and WL canonicalize expressions differently, a search may
+return an alternative — equally precise — first match.
+
+Deliberate deviations: ``search_time_limit`` is a hard interrupt
+(``SIGALRM``) where available; unknown ``search_range`` values raise
+``FindClosedFormError`` instead of silently falling back to
+``"Farey"``; floats in ``search_arguments`` are exactified via
+``Fraction.limit_denominator`` (so 0.1 means 1/10); oversized
+multi-argument ranges truncate keeping the smallest-magnitude
+arguments.
+
+The full statement-level reduction against the WL kernels is documented
+in ``wolfram/REPORT-wl-differences.md`` in the repository.
 """
 
 from __future__ import annotations
@@ -15,7 +53,10 @@ import bisect
 import inspect
 import itertools
 import math
+import signal
+import threading
 import time
+from contextlib import contextmanager
 from fractions import Fraction
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -58,6 +99,8 @@ from sympy import (
     sqrt,
     airyai,
     airybi,
+    erfc,
+    Ei,
 )
 from farey import farey_range as _ext_farey_range
 
@@ -73,6 +116,54 @@ Number = Union[int, float, Fraction, sympy.Basic]
 
 class FindClosedFormError(Exception):
     """Base exception for find_closed_form errors."""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Search time limit  (WL TimeConstrained)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _SearchAborted(Exception):
+    """Raised by the alarm handler when the search time limit expires."""
+
+
+@contextmanager
+def _search_time_limit(seconds):
+    """
+    WL ``TimeConstrained[..., seconds]`` around the whole search block.
+
+    On Unix main threads the limit is enforced through
+    ``signal.setitimer``/``SIGALRM``, so even a single long symbolic
+    evaluation is interrupted; elsewhere (Windows, non-main threads) the
+    cooperative clock checks in the search loop remain the only guard.
+    A pre-existing interval timer is re-armed on exit, so nested use
+    (e.g. a caller's own ``time_constrained``) stays safe.
+    """
+    use_signal = (
+        seconds is not None
+        and math.isfinite(seconds)
+        and seconds > 0
+        and hasattr(signal, "SIGALRM")
+        and threading.current_thread() is threading.main_thread()
+    )
+    if not use_signal:
+        yield
+        return
+
+    def _handler(signum, frame):
+        raise _SearchAborted
+
+    old_handler = signal.signal(signal.SIGALRM, _handler)
+    old_delay, old_interval = signal.setitimer(signal.ITIMER_REAL, seconds)
+    start = time.monotonic()
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old_handler)
+        if old_delay:
+            remaining = old_delay - (time.monotonic() - start)
+            signal.setitimer(signal.ITIMER_REAL, max(remaining, 1e-3),
+                             old_interval)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -102,6 +193,13 @@ def _integer_length(n: int) -> int:
     return len(str(abs(n)))
 
 
+def _prime_omega(n: int) -> int:
+    """Ω(n): prime factors with multiplicity; Ω(1) = 1 (WL ``FactorInteger[1]``)."""
+    if n <= 1:
+        return 1
+    return sum(sympy.factorint(n).values())
+
+
 def _collect_integers(expr, mult: int = 1) -> List[int]:
     """Extract all integers from a sympy expression, duplicated for root degrees."""
     if not isinstance(expr, sympy.Basic):
@@ -120,10 +218,13 @@ def _collect_integers(expr, mult: int = 1) -> List[int]:
     if expr.func == sympy.Pow and len(expr.args) == 2:
         base, ex = expr.args
         if ex.is_Rational and not ex.is_Integer:
-            deg = max(abs(int(ex.p)), abs(int(ex.q)))
-            return _collect_integers(base, mult * max(deg, 1))
-        if ex.is_Integer and abs(int(ex)) > 1:
-            return _collect_integers(base, mult * abs(int(ex)))
+            # WL kernel 1.0.0.4: a root of degree m/n duplicates its base
+            # |m| + |n| times (published 1.0.0 used |m*n|)
+            deg = abs(int(ex.p)) + abs(int(ex.q))
+            return _collect_integers(base, mult * deg)
+        if ex.is_Integer and int(ex) != 1:
+            # integer powers count the base once plus the exponent itself
+            return _collect_integers(base, mult) + [int(ex)] * mult
 
     result: list[int] = []
     for a in expr.args:
@@ -133,10 +234,13 @@ def _collect_integers(expr, mult: int = 1) -> List[int]:
 
 def formula_complexity(expr) -> float:
     """
-    Heuristic complexity of a sympy expression.
+    Heuristic complexity of a sympy expression (WL kernel 1.0.0.4).
 
-    For each integer in the expression: ``mean(5*IntegerLength, DigitSum, sqrt(|n|))``.
-    Sum over all integers.  Constants (pi, E, …) count as 1.
+    For each integer ``i`` in the expression (non-positive ``j`` mapped to
+    ``-j + 1`` first): ``(5*IntegerLength + DigitSum + Ω + sqrt(i)) / 8``,
+    where ``Ω`` counts prime factors with multiplicity.  Sum over all
+    integers; roots duplicate their base by degree; constants
+    (pi, E, …) count as 1.
     """
     if isinstance(expr, (int, float)):
         expr = sympy.sympify(expr)
@@ -150,8 +254,12 @@ def formula_complexity(expr) -> float:
         return 0.0
     total = 0.0
     for i in ints:
-        ai = abs(i) if i != 0 else 1
-        total += (5 * _integer_length(ai) + _digit_sum(ai) + math.sqrt(ai)) / 3.0
+        if i <= 0:
+            i = -i + 1
+        total += (
+            5 * _integer_length(i) + _digit_sum(i) + _prime_omega(i)
+            + math.sqrt(i)
+        ) / 8.0
     return total
 
 
@@ -192,11 +300,46 @@ def _safe_neval(expr, digits: int = 18) -> Optional[float]:
 # Argument range generation
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_SEARCH_RANGE_VALUES = ("Farey", "Plain", "Integer", "Algebraic",
+                        "Transcendental")
+
+
+def _algebraic_range_gen() -> Callable:
+    """Import ``algebraic_range`` lazily (optional dependency)."""
+    try:
+        from algebraic_range import algebraic_range
+    except ImportError:
+        raise ImportError(
+            'search_range="Algebraic" requires the algebraic-range package. '
+            "Install it with: pip install algebraic-range"
+        ) from None
+    return algebraic_range
+
+
+def _transcendental_range_gen() -> Callable:
+    """Import ``transcendental_range`` lazily (optional dependency)."""
+    try:
+        from transcendental_range import transcendental_range
+    except ImportError:
+        raise ImportError(
+            'search_range="Transcendental" requires the '
+            "transcendental-range package. "
+            "Install it with: pip install transcendental-range"
+        ) from None
+    return transcendental_range
+
+
 def _generate_range(
-    cut: int, search_range: str, custom_fn: Optional[Callable] = None,
+    cut: int,
+    search_range: Union[str, Callable],
+    custom_fn: Optional[Callable] = None,
+    range_options: Optional[dict] = None,
 ) -> list:
     if custom_fn is not None:
         return custom_fn(cut)
+    if callable(search_range):  # WL: Head[OptionValue["SearchRange"]] === Function
+        return search_range(cut)
+    opts = dict(range_options) if range_options else {}
     if search_range == "Farey":
         return _ext_farey_range(-cut, cut, cut)
     if search_range == "Plain":
@@ -208,7 +351,15 @@ def _generate_range(
         return result
     if search_range == "Integer":
         return [Fraction(i) for i in range(-cut, cut + 1)]
-    return _ext_farey_range(-cut, cut, cut)
+    if search_range == "Algebraic":
+        return _algebraic_range_gen()(-cut, cut, Fraction(1, cut), **opts)
+    if search_range == "Transcendental":
+        return _transcendental_range_gen()(-cut, cut, Fraction(1, cut), **opts)
+    raise FindClosedFormError(
+        f"Unknown search_range {search_range!r}: expected one of "
+        + ", ".join(repr(v) for v in _SEARCH_RANGE_VALUES)
+        + ", or a callable."
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -218,65 +369,92 @@ def _generate_range(
 # separately.  Built lazily on first use.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_ABS_LOOKUP_CACHE: Optional[Tuple[list, list, list]] = None
+_ABS_LOOKUP_CACHE: Optional[tuple] = None
 
 
-def _build_abs_lookup() -> Tuple[List[float], List[Fraction], List[int]]:
+def _build_abs_lookup() -> tuple:
     """
-    Build a sorted lookup table of positive algebraic-number candidates.
+    Build a sorted lookup table of positive algebraic-number candidates,
+    mirroring the WL ``absLookupBase``.
 
-    Returns three parallel lists (sorted by float value):
+    Returns four parallel packed arrays (sorted by float value):
       values  – float approximations
-      bases   – Fraction bases (p/q)
+      nums    – base numerators
+      dens    – base denominators
       orders  – root order (1 = plain fraction, 2 = sqrt, …)
     """
-    seen: set[Tuple[float, int]] = set()
-    entries: list[Tuple[float, Fraction, int]] = []
+    from array import array
 
-    def _add(fv: float, base: Fraction, order: int) -> None:
-        key = (round(fv, 14), order)
-        if key not in seen and math.isfinite(fv) and fv >= 0:
-            seen.add(key)
-            entries.append((fv, base, order))
+    entries: list[Tuple[float, int, int, int]] = []
+
+    def _add(fv: float, num: int, den: int, order: int) -> None:
+        if math.isfinite(fv) and fv >= 0:
+            entries.append((fv, num, den, order))
 
     # 1) Range[0, 10000, 1/10]  – tenths
     for n in range(0, 100_001):
-        f = Fraction(n, 10)
-        _add(float(f), f, 1)
+        q, r = divmod(n, 10)
+        if r == 0:
+            _add(float(q), q, 1, 1)
+        else:
+            _add(n / 10.0, n, 10, 1)
 
-    # 2) FareyRange[0, 1000, 10]  – simple fractions up to 1000
+    # 2) integer ranges: Range[10^4, 10^5], Range[10^5, 10^6, 10],
+    #    Range[10^6, 10^8, 1000], Range[10^8, 10^9, 10^5]
+    for lo, hi, step in (
+        (10_000, 100_000, 1),
+        (100_000, 1_000_000, 10),
+        (1_000_000, 100_000_000, 1_000),
+        (100_000_000, 1_000_000_000, 100_000),
+    ):
+        for n in range(lo, hi + 1, step):
+            _add(float(n), n, 1, 1)
+
+    # 3) FareyRange[0, 1000, 10] and FareyRange[0, 100, 100]
     for f in _ext_farey_range(0, 1000, 10):
-        _add(float(f), f, 1)
+        _add(float(f), f.numerator, f.denominator, 1)
+    for f in _ext_farey_range(0, 100, 100):
+        _add(float(f), f.numerator, f.denominator, 1)
 
-    # 3) Sqrt of FareyRange[0, 100, 50]
+    # 4) Sqrt of FareyRange[0, 100, 50]
     for f in _ext_farey_range(0, 100, 50):
         if f >= 0:
-            _add(math.sqrt(float(f)), f, 2)
+            _add(math.sqrt(float(f)), f.numerator, f.denominator, 2)
 
-    # 4) Higher roots of FareyRange[0, 100, 10]
+    # 5) Higher roots of FareyRange[0, 100, 10]
     for f in _ext_farey_range(0, 100, 10):
         if f > 0:
             fv = float(f)
             for order in (3, 4, 5, 6):
-                _add(fv ** (1.0 / order), f, order)
+                _add(fv ** (1.0 / order), f.numerator, f.denominator, order)
 
-    entries.sort(key=lambda e: e[0])
-    return (
-        [e[0] for e in entries],
-        [e[1] for e in entries],
-        [e[2] for e in entries],
+    entries.sort(key=lambda e: (e[0], e[3]))
+    # drop duplicates (same value and root order)
+    prev_key = None
+    values, nums, dens, orders = (
+        array("d"), array("q"), array("q"), array("b"),
     )
+    for fv, num, den, order in entries:
+        key = (round(fv, 14), order)
+        if key == prev_key:
+            continue
+        prev_key = key
+        values.append(fv)
+        nums.append(num)
+        dens.append(den)
+        orders.append(order)
+    return values, nums, dens, orders
 
 
-def _get_abs_lookup() -> Tuple[List[float], List[Fraction], List[int]]:
+def _get_abs_lookup() -> tuple:
     global _ABS_LOOKUP_CACHE
     if _ABS_LOOKUP_CACHE is None:
         _ABS_LOOKUP_CACHE = _build_abs_lookup()
     return _ABS_LOOKUP_CACHE
 
 
-def _entry_to_sympy(base: Fraction, order: int) -> sympy.Basic:
-    r = Rational(base.numerator, base.denominator)
+def _entry_to_sympy(num: int, den: int, order: int) -> sympy.Basic:
+    r = Rational(num, den)
     if order == 1:
         return r
     return r ** Rational(1, order)
@@ -287,7 +465,7 @@ def _find_nearest_algebraic(target: float, digits: int) -> List[sympy.Basic]:
     if not math.isfinite(target):
         return []
 
-    values, bases, orders = _get_abs_lookup()
+    values, nums, dens, orders = _get_abs_lookup()
     if not values:
         return []
 
@@ -301,7 +479,7 @@ def _find_nearest_algebraic(target: float, digits: int) -> List[sympy.Basic]:
         if cval == 0 and abs_target > 0.01:
             continue
         if _precision_match(abs_target, cval, max(digits - 2, 2)):
-            sym = _entry_to_sympy(bases[i], orders[i])
+            sym = _entry_to_sympy(nums[i], dens[i], orders[i])
             results.append(-sym if sign == -1 else sym)
 
     return results
@@ -320,6 +498,37 @@ def _to_sympy(a) -> sympy.Basic:
     if isinstance(a, int):
         return Integer(a)
     return sympy.sympify(a)
+
+
+def _coerce_argument(a):
+    """Exactify a user-supplied search argument; exact types pass through."""
+    if isinstance(a, bool):
+        raise FindClosedFormError(f"Invalid search argument {a!r}.")
+    if isinstance(a, int):
+        return Fraction(a)
+    if isinstance(a, float):
+        return Fraction(a).limit_denominator(10 ** 12)
+    return a
+
+
+def _slots_from_dict(d: dict, arity: int) -> List[list]:
+    """
+    Resolve a WL-style slots association (``<|#1 -> list1, #2 -> list2|>``)
+    into per-slot argument lists.  Keys may be 1-based integers or ``"#1"``
+    strings.
+    """
+    slots = []
+    for i in range(1, arity + 1):
+        for key in (i, f"#{i}", f"#{i}&"):
+            if key in d:
+                slots.append(list(d[key]))
+                break
+        else:
+            raise FindClosedFormError(
+                f"search_arguments dict is missing slot {i}: expected key "
+                f"{i} or '#{i}'."
+            )
+    return slots
 
 
 def _detect_arity(func: Callable) -> int:
@@ -387,7 +596,11 @@ def _eval_function_over_range(
             per_slot = [arg_ranges] * arity
 
         max_per = max(2, int(_MAX_COMBOS ** (1.0 / arity)))
-        truncated = [r[:max_per] for r in per_slot]
+        truncated = [
+            r if len(r) <= max_per
+            else sorted(r, key=lambda a: abs(float(a)))[:max_per]
+            for r in per_slot
+        ]
 
         for combo in itertools.product(*truncated):
             if combo in prev_args:
@@ -513,9 +726,11 @@ def _make_default_functions() -> List[Tuple[str, Callable, int]]:
         ("elliptic_k(#)", lambda x: elliptic_k(x), 1),
         ("elliptic_e(#)", lambda x: elliptic_e(x), 1),
         ("erf(#)", lambda x: erf(x), 1),
+        ("erfc(#)", lambda x: erfc(x), 1),
         ("erfinv(#)", lambda x: erfinv(x), 1),
         ("airyai(#)", lambda x: airyai(x), 1),
         ("airybi(#)", lambda x: airybi(x), 1),
+        ("Ei(#)", lambda x: Ei(x), 1),
     ]
 
 
@@ -567,7 +782,7 @@ def _normalize_functions(functions) -> List[Tuple[str, Callable, int]]:
 def find_closed_form(
     y: Number,
     functions=None,
-    max_results: int = 1,
+    max_results: Optional[int] = None,
     *,
     significant_digits: Optional[int] = None,
     formula_complexity_threshold: Optional[float] = None,
@@ -575,22 +790,39 @@ def find_closed_form(
     algebraic_add: bool = True,
     rational_solutions: bool = False,
     max_search_rounds: int = 50,
-    search_range: str = "Farey",
+    search_range: Union[str, Callable] = "Farey",
     search_range_fn: Optional[Callable] = None,
+    search_range_options: Optional[dict] = None,
     search_arguments: Optional[Union[list, dict]] = None,
     search_time_limit: float = 3600,
+    monitor_search: bool = False,
 ) -> Union[List[sympy.Basic], sympy.Basic, None]:
     """
     Search for closed-form expressions matching a numerical value.
+
+    Positional forms mirror the WL resource function::
+
+        find_closed_form(y)              # FindClosedForm[y]
+        find_closed_form(y, n)           # FindClosedForm[y, n]
+        find_closed_form(y, f)           # FindClosedForm[y, f]
+        find_closed_form(y, [f1, f2])    # FindClosedForm[y, {f1, f2, ...}]
+        find_closed_form(y, f, n)        # FindClosedForm[y, f, n]
+
+    where an integer second argument is the number of results *n* and a
+    callable (or list of callables) is the functional forms *f*.
 
     Parameters
     ----------
     y : number
         The target numerical value.
     functions : callable, list, or None
-        Functional forms to search.  ``None`` uses ~29 common functions.
+        Functional forms to search.  ``None`` uses ~31 common functions
+        (plus the identity for the ``"Algebraic"`` and ``"Transcendental"``
+        search ranges, whose elements are closed forms themselves).
+        An integer here is dispatched to ``max_results`` (WL
+        ``FindClosedForm[y, n]``).
     max_results : int
-        Maximum number of results.
+        Maximum number of results (default 1).
     significant_digits : int or None
         Precision target.  Auto-detected if None.
     formula_complexity_threshold : float or None
@@ -603,21 +835,59 @@ def find_closed_form(
         Allow purely rational results.
     max_search_rounds : int
         Maximum argument-range expansion rounds.
-    search_range : str
-        ``"Farey"``, ``"Plain"``, or ``"Integer"``.
+    search_range : str or callable
+        Argument range per search round ``cut``:
+
+        - ``"Farey"``: ``farey_range(-cut, cut, cut)``;
+        - ``"Plain"``: rationals ``-cut, ..., cut`` with step ``1/cut``;
+        - ``"Integer"``: the integers ``-cut, ..., cut``;
+        - ``"Algebraic"``: ``algebraic_range(-cut, cut, 1/cut)`` — exact
+          roots, from the algebraic-range package;
+        - ``"Transcendental"``: ``transcendental_range(-cut, cut, 1/cut)``
+          — exact transcendental numbers, from the transcendental-range
+          package;
+        - a callable ``f(cut) → list`` (same as ``search_range_fn``).
     search_range_fn : callable or None
-        Custom ``f(cut) → list`` for argument generation.
+        Custom ``f(cut) → list`` for argument generation
+        (overrides ``search_range``).
+    search_range_options : dict or None
+        Extra keyword options forwarded to the range generator when
+        ``search_range`` is ``"Algebraic"`` or ``"Transcendental"``,
+        e.g. ``{"root_order": 3}`` or ``{"method": "log"}``.
     search_arguments : list, dict, or None
-        Fixed argument values instead of auto-generated ranges.
+        Fixed argument values instead of auto-generated ranges; exact
+        sympy expressions (e.g. an ``algebraic_range`` or
+        ``transcendental_range`` output) are used as given.  A dict maps
+        slots to per-slot lists (WL ``<|#1 -> list1, #2 -> list2|>``),
+        with 1-based integer or ``"#1"`` keys.
     search_time_limit : float
-        Maximum seconds for the search.
+        Maximum seconds for the search (WL ``TimeConstrained``: enforced
+        by ``SIGALRM`` where available, else checked between functions).
+    monitor_search : bool
+        Print each result as it is found (WL ``"MonitorSearch"``).
 
     Returns
     -------
     Single sympy expression, list, or None.
     """
+    # ── WL-style positional dispatch ─────────────────────────────────────
+    # FindClosedForm[y, n]: an integer second argument is the number of
+    # results, not the functions.
+    if isinstance(functions, (int, sympy.Integer)) and not isinstance(functions, bool):
+        if max_results is not None:
+            raise FindClosedFormError(
+                "with an integer second argument (the number of results, "
+                "WL FindClosedForm[y, n]) no further positional argument "
+                "is allowed."
+            )
+        functions, max_results = None, int(functions)
+    if max_results is None:
+        max_results = 1
+
     # ── normalise input ──────────────────────────────────────────────────
+    exact_input = isinstance(y, (int, Fraction)) and not isinstance(y, bool)
     if isinstance(y, sympy.Basic):
+        exact_input = bool(y.is_Rational)
         num = float(y.evalf(n=18))
     elif isinstance(y, Fraction):
         num = float(y)
@@ -627,8 +897,24 @@ def find_closed_form(
     if not math.isfinite(num):
         raise FindClosedFormError(f"Input must be a finite number, got {y}")
 
-    digits = significant_digits if significant_digits is not None else _auto_digits(num)
+    if search_range_options and search_range not in (
+            "Algebraic", "Transcendental"):
+        raise FindClosedFormError(
+            "search_range_options only applies to the \"Algebraic\" and "
+            f"\"Transcendental\" search ranges, not {search_range!r}."
+        )
+
+    if significant_digits is not None:
+        digits = significant_digits
+    elif exact_input and num != 0:
+        digits = 16  # WL autoDigits: exact Integer/Rational input
+    else:
+        digits = _auto_digits(num)
     func_list = _normalize_functions(functions)
+    # On the generated closed-form ranges the elements themselves are
+    # candidate formulae: include the identity among the default functions.
+    if functions is None and search_range in ("Algebraic", "Transcendental"):
+        func_list = [("#", lambda x: x, 1)] + func_list
 
     eff_rational = rational_solutions
     if not algebraic_factor and not algebraic_add:
@@ -638,91 +924,138 @@ def find_closed_form(
     start_time = time.time()
     prev_args: dict[int, set] = {i: set() for i in range(len(func_list))}
 
-    # ── fixed search-arguments mode (single pass, no rounds) ─────────
-    if search_arguments is not None:
-        for fi, (name, func, arity) in enumerate(func_list):
-            if time.time() - start_time > search_time_limit:
-                break
-            is_identity = _is_identity_func(func)
-            compl = formula_complexity_threshold if formula_complexity_threshold else 50.0
-
-            if arity == 1:
-                raw = search_arguments
-                if raw and isinstance(raw[0], (list, tuple)):
-                    raw = raw[0]
-                frac_args = [Fraction(a) if isinstance(a, (int, float)) else a for a in raw]
-                evals = _eval_function_over_range(func, frac_args, arity, set())
-            else:
-                if isinstance(search_arguments, (list, tuple)):
-                    if search_arguments and isinstance(search_arguments[0], (list, tuple)):
-                        slot_ranges = [
-                            [Fraction(a) if isinstance(a, (int, float)) else a for a in sl]
-                            for sl in search_arguments
-                        ]
-                    else:
-                        slot_ranges = [
-                            [Fraction(a) if isinstance(a, (int, float)) else a for a in search_arguments]
-                        ] * arity
+    try:
+        with _search_time_limit(search_time_limit):
+            if search_arguments is not None:
+                # ── fixed search-arguments mode (single pass, no rounds) ──
+                if isinstance(search_arguments, dict):
+                    flat_args = [a for sl in search_arguments.values() for a in sl]
+                elif search_arguments and isinstance(
+                        search_arguments[0], (list, tuple)):
+                    flat_args = [a for sl in search_arguments for a in sl]
                 else:
-                    slot_ranges = [search_arguments] * arity
-                evals = _eval_function_over_range(func, slot_ranges, arity, set())
-
-            rr = _sub_search_none(num, evals, digits, compl, eff_rational, is_identity)
-            if algebraic_factor:
-                rr.extend(_sub_search_times(num, evals, digits, compl, eff_rational, is_identity))
-            if algebraic_add:
-                rr.extend(_sub_search_plus(num, evals, digits, compl, eff_rational, is_identity))
-            all_results.extend(rr)
-
-        all_results = _dedup_results(all_results, digits)
-        all_results.sort(key=formula_complexity)
-        all_results = all_results[:max_results]
-        if max_results == 1:
-            return all_results[0] if all_results else None
-        return all_results
-
-    # ── main search loop over progressively larger argument ranges ────
-    for cut in range(1, max_search_rounds + 1):
-        if time.time() - start_time > search_time_limit:
-            break
-
-        arg_range = _generate_range(cut, search_range, search_range_fn)
-
-        for fi, (name, func, arity) in enumerate(func_list):
-            if time.time() - start_time > search_time_limit:
-                break
-
-            if formula_complexity_threshold is not None:
-                compl = formula_complexity_threshold
-            else:
-                max_elem = max(arg_range, key=lambda a: abs(float(a)))
-                range_compl = formula_complexity(_to_sympy(max_elem))
-                compl = 0.5 * (1 + math.sqrt(arity)) * (15 + range_compl)
-
-            is_identity = _is_identity_func(func)
-
-            if arity == 1:
-                evals = _eval_function_over_range(func, arg_range, arity, prev_args[fi])
-            else:
-                evals = _eval_function_over_range(
-                    func, [arg_range] * arity, arity, prev_args[fi],
+                    flat_args = list(search_arguments)
+                args_compl = max(
+                    (formula_complexity(_to_sympy(_coerce_argument(a)))
+                     for a in flat_args),
+                    default=0.0,
                 )
+                for fi, (name, func, arity) in enumerate(func_list):
+                    if time.time() - start_time > search_time_limit:
+                        break
+                    is_identity = _is_identity_func(func)
+                    if formula_complexity_threshold is not None:
+                        compl = formula_complexity_threshold
+                    else:
+                        # WL complexityF over the custom argument list
+                        compl = 0.5 * (1 + math.sqrt(arity)) * (5 + args_compl)
 
-            for args_tuple, _, _ in evals:
-                prev_args[fi].add(args_tuple)
+                    if arity == 1:
+                        if isinstance(search_arguments, dict):
+                            raw = _slots_from_dict(search_arguments, 1)[0]
+                        else:
+                            raw = search_arguments
+                            if raw and isinstance(raw[0], (list, tuple)):
+                                raw = raw[0]
+                        frac_args = [_coerce_argument(a) for a in raw]
+                        evals = _eval_function_over_range(func, frac_args, arity, set())
+                    else:
+                        if isinstance(search_arguments, dict):
+                            slot_ranges = [
+                                [_coerce_argument(a) for a in sl]
+                                for sl in _slots_from_dict(search_arguments, arity)
+                            ]
+                        elif search_arguments and isinstance(search_arguments[0], (list, tuple)):
+                            slot_ranges = [
+                                [_coerce_argument(a) for a in sl]
+                                for sl in search_arguments
+                            ]
+                        else:
+                            slot_ranges = [
+                                [_coerce_argument(a) for a in search_arguments]
+                            ] * arity
+                        evals = _eval_function_over_range(func, slot_ranges, arity, set())
 
-            rr = _sub_search_none(num, evals, digits, compl, eff_rational, is_identity)
-            if algebraic_factor:
-                rr.extend(_sub_search_times(num, evals, digits, compl, eff_rational, is_identity))
-            if algebraic_add:
-                rr.extend(_sub_search_plus(num, evals, digits, compl, eff_rational, is_identity))
+                    # WL searchRound: skip remaining operations once enough
+                    # results were already found
+                    rr = _sub_search_none(num, evals, digits, compl, eff_rational, is_identity)
+                    if algebraic_factor and len(rr) < max_results:
+                        rr.extend(_sub_search_times(num, evals, digits, compl, eff_rational, is_identity))
+                    if algebraic_add and len(rr) < max_results:
+                        rr.extend(_sub_search_plus(num, evals, digits, compl, eff_rational, is_identity))
+                    prev_count = len(all_results)
+                    all_results.extend(rr)
+                    all_results = _dedup_results(all_results, digits)
+                    if monitor_search:
+                        for k, r in enumerate(all_results[prev_count:],
+                                              start=prev_count + 1):
+                            print(f"Search result {k}: {r}")
 
-            all_results.extend(rr)
+            else:
+                # ── main search loop over progressively larger ranges ──
+                for cut in range(1, max_search_rounds + 1):
+                    if time.time() - start_time > search_time_limit:
+                        break
 
-        all_results = _dedup_results(all_results, digits)
-        if len(all_results) >= max_results:
-            break
+                    arg_range = _generate_range(
+                        cut, search_range, search_range_fn,
+                        search_range_options)
+                    if not arg_range:
+                        continue
+                    range_compl = None  # computed lazily, once per round
 
+                    for fi, (name, func, arity) in enumerate(func_list):
+                        if time.time() - start_time > search_time_limit:
+                            break
+
+                        if formula_complexity_threshold is not None:
+                            compl = formula_complexity_threshold
+                        else:
+                            # WL: formulaComplexity[range] = Max over elements;
+                            # constant 15 lowered to 5 in kernel 1.0.0.4
+                            if range_compl is None:
+                                range_compl = max(
+                                    formula_complexity(_to_sympy(a))
+                                    for a in arg_range
+                                )
+                            compl = 0.5 * (1 + math.sqrt(arity)) * (5 + range_compl)
+
+                        is_identity = _is_identity_func(func)
+
+                        if arity == 1:
+                            evals = _eval_function_over_range(func, arg_range, arity, prev_args[fi])
+                        else:
+                            evals = _eval_function_over_range(
+                                func, [arg_range] * arity, arity, prev_args[fi],
+                            )
+
+                        for args_tuple, _, _ in evals:
+                            prev_args[fi].add(args_tuple)
+
+                        # WL searchRound: skip remaining operations once
+                        # enough results were already found in this round
+                        rr = _sub_search_none(num, evals, digits, compl, eff_rational, is_identity)
+                        if algebraic_factor and len(rr) < max_results:
+                            rr.extend(_sub_search_times(num, evals, digits, compl, eff_rational, is_identity))
+                        if algebraic_add and len(rr) < max_results:
+                            rr.extend(_sub_search_plus(num, evals, digits, compl, eff_rational, is_identity))
+
+                        prev_count = len(all_results)
+                        all_results.extend(rr)
+                        all_results = _dedup_results(all_results, digits)
+                        if monitor_search:
+                            for k, r in enumerate(all_results[prev_count:],
+                                                  start=prev_count + 1):
+                                print(f"Search result {k}: {r}")
+                        if len(all_results) >= max_results:
+                            break
+
+                    if len(all_results) >= max_results:
+                        break
+    except _SearchAborted:
+        pass  # time limit hit: return what was found so far (WL CheckAbort)
+
+    all_results = _dedup_results(all_results, digits)
     all_results.sort(key=formula_complexity)
     all_results = all_results[:max_results]
 

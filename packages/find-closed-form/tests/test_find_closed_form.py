@@ -16,7 +16,9 @@ from sympy import (
     Catalan, EulerGamma, GoldenRatio, erf, erfinv, elliptic_k, elliptic_e,
 )
 
-from find_closed_form import find_closed_form, formula_complexity, farey_range
+from find_closed_form import (
+    find_closed_form, formula_complexity, farey_range, FindClosedFormError,
+)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -82,6 +84,46 @@ class TestBasicExamples:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# WL positional syntax: fcf[y], fcf[y, n], fcf[y, f], fcf[y, f, n]
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestWLSyntax:
+    """Positional forms mirroring the WL resource function."""
+
+    def test_y_n(self):
+        """fcf[0.405465, 3]: integer second argument = number of results"""
+        results = find_closed_form(0.405465, 3, search_time_limit=120)
+        assert isinstance(results, list) and 1 <= len(results) <= 3
+        assert _approx(results[0], 0.405465)
+
+    def test_y_f_positional(self):
+        """fcf[1.85653, 1/Zeta[#]^2&] with positional f"""
+        result = find_closed_form(1.85653, lambda x: 1 / zeta(x) ** 2)
+        assert result is not None
+        assert _approx(result, 1.85653)
+
+    def test_y_f_n_positional(self):
+        """fcf[0.405465, Log, 10] fully positional"""
+        results = find_closed_form(0.405465, lambda x: log(x), 10,
+                                   max_search_rounds=20,
+                                   search_time_limit=120)
+        assert isinstance(results, list) and len(results) >= 1
+        assert _approx(results[0], 0.405465)
+
+    def test_keyword_equivalence(self):
+        """Positional and keyword forms give the same result."""
+        pos = find_closed_form(0.405465, lambda x: log(x), 1)
+        kw = find_closed_form(0.405465, functions=lambda x: log(x),
+                              max_results=1)
+        assert pos == kw
+
+    def test_two_integers_rejected(self):
+        """fcf[y, n1, n2] has no WL meaning and raises."""
+        with pytest.raises(FindClosedFormError):
+            find_closed_form(0.405465, 2, 3)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Scope (from fcf-spec.txt lines 1219-1320)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -100,7 +142,6 @@ class TestScope:
         assert len(results) >= 1
         assert _approx(results[0], 0.405465)
 
-    @pytest.mark.xfail(reason="complexity threshold borderline at cut=2, arg not retried at cut=3")
     def test_polygamma(self):
         """fcf[-1.1857322, PolyGamma[#]&] = 7/9 + PolyGamma[0, 1/2]"""
         result = find_closed_form(
@@ -128,7 +169,6 @@ class TestScope:
         assert result is not None
         assert _approx(result, 7.443967)
 
-    @pytest.mark.xfail(reason="multi-arg search too slow for default rounds/time")
     def test_gamma_ratio(self):
         """fcf[4.688231, Gamma[#1]/Gamma[#2]&] = 2 Sqrt[3] Gamma[1/4]/Gamma[1/3]"""
         result = find_closed_form(

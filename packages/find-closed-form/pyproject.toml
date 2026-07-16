@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "find-closed-form"
-version = "0.4.0"
+version = "0.5.0"
 description = "Find closed-form expressions for numerical values"
 readme = "README.md"
 license = "MIT"
@@ -21,6 +21,9 @@ keywords = [
     "number-theory",
     "mathematics",
     "inverse-symbolic-calculator",
+    "number-recognition",
+    "symbolic-regression",
+    "wolfram",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -37,10 +40,14 @@ classifiers = [
 ]
 dependencies = [
     "sympy>=1.12",
-    "farey>=0.6.0",
+    "farey>=0.7.0",
 ]
 
 [project.optional-dependencies]
+ranges = [
+    "algebraic-range>=0.9.0",
+    "transcendental-range>=0.9.0",
+]
 dev = [
     "pytest>=7.0",
 ]
@@ -49,6 +56,7 @@ dev = [
 Homepage = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/find-closed-form"
 Documentation = "https://resources.wolframcloud.com/FunctionRepository/resources/FindClosedForm/"
 Repository = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/find-closed-form"
+Changelog = "https://github.com/Daniele-Gregori/PyPI-packages/blob/main/packages/find-closed-form/CHANGELOG.md"
 Issues = "https://github.com/Daniele-Gregori/PyPI-packages/issues"
 
 [tool.setuptools.packages.find]

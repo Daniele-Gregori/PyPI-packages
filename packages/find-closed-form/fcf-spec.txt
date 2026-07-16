@@ -1,0 +1,2218 @@
+FindClosedForm
+
+Search for a formula that yields a given number
+
+DefinitionFunctionDefine your function using the name you gave in the Title line above. You can add input cells and extra code to define additional input cases or prerequisites. All definitions, including dependencies, will be included in the generated resource function.
+
+This section should be evaluated before creating the Examples section below.
+
+
+
+
+
+
+
+Auxiliary functions
+
+Argument search range
+
+The following function computes the argument range for each search round. It is set by default to the Farey range, which is made of rationals of uniform complexity.
+
+(*the parameter cut is the search round number or also an upper integer cutoff*)
+ClearAll[rangeFull]
+Options[rangeFull] = {"ComplexArg"->False, "SearchRange"->"Farey"};
+rangeFull[cut_Integer, options:OptionsPattern[rangeFull]]:=
+	Which[OptionValue["SearchRange"] === "Farey", 
+		If[!OptionValue["ComplexArg"], 
+			ResourceFunction["FareyRange"][ - cut, cut, cut], 
+			ResourceFunction["ComplexRange"][ - cut - I cut, cut + I cut, {cut, cut}, "FareyRange"->True]], 
+		OptionValue["SearchRange"] === "Plain", 
+		If[!OptionValue["ComplexArg"], 
+			Range[ - cut, cut, 1 / cut], 
+			ResourceFunction["ComplexRange"][ - cut - I cut, cut + I cut, {1 / cut, 1 / cut}]], 
+		OptionValue["SearchRange"] === "Integer", 
+		If[!OptionValue["ComplexArg"], 
+			Range[ - cut, cut], 
+			ResourceFunction["ComplexRange"][ - cut - I cut, cut + I cut]], 
+		Head[OptionValue["SearchRange"]] === Function, 
+		OptionValue["SearchRange"][cut]]
+
+A function which restricts the argument search range, that is it selects a "chamber". This exploits properties for each known function, so to speed up the search when certain options are used (see below "AlgebraicFactor" and "AlgebraicAdd", related to the internal option "Operation").
+
+ClearAll[functionChamber]
+Options[functionChamber] = {"ComplexArg"->False, "RealValued"->True, "Operation"->"Times"};
+functionChamber[x_, opts:OptionsPattern[functionChamber]]:=
+(*x is the variable or slot*)
+Which[OptionValue["Operation"] == "Times"&&!OptionValue["ComplexArg"]&&OptionValue["RealValued"], 
+\[LeftAssociation]Sin[\[Pi] #]&->0<=x<=1/2, Cos[\[Pi] #]&->0<=x<=1/2, Tan[\[Pi] #]&->0<=x<=1/2, Cot[\[Pi] #]&->0<=x<=1/2, Sec[\[Pi] #]&->0<=x<=1/2, Csc[\[Pi] #]&->0<=x<=1/2, ArcSin[#]&->0<=x<=1, ArcCos[#]&-> - 1<=x<=1, ArcTan[#]&->0<=x, ArcCot[#]&->0<=x, ArcSec[#]&->True, ArcCsc[#]&->0<=x, Exp[#]&->True, Log[#]&->1<=x, Sinh[#]&->0<=x, Cosh[#]&->0<=x, Tanh[#]&->0<=x, Coth[#]&->0<=x, Sech[#]&->0<=x, Csch[#]&->0<=x, ArcSinh[#]&->0<=x, ArcCosh[#]&->1<=x, ArcTanh[#]&->0<=x<=1, ArcCoth[#]&->0<=x, ArcSech[#]&->0<=x<=1, ArcCsch[#]&->0<=x, Gamma[#]&->0<=x<=1, Erf[#]&->0<=x, InverseErf[#]&->0<=x<=1, EllipticK[#]&->True, EllipticE[#]&->x<=1, Zeta[#]&->True, ProductLog[#]&-> - 1/E<=x\[RightAssociation] , 
+OptionValue["Operation"] == "Plus"&&!OptionValue["ComplexArg"]&&OptionValue["RealValued"], 
+<|PolyGamma[#]&->0<=x<=1|>, 
+OptionValue["Operation"] == "None"&&!OptionValue["ComplexArg"]&&OptionValue["RealValued"], 
+<||>, 
+Or[OptionValue["ComplexArg"], !OptionValue["RealValued"]], 
+<||>]
+functionChamber[x_, fun_Function, opts:OptionsPattern[functionChamber]]/;MemberQ[Keys@functionChamber[x, opts], fun]:=Lookup[functionChamber[x, opts], fun]
+functionChamber[x_, fun_Function, opts:OptionsPattern[functionChamber]]:=True
+
+Function evaluation
+
+Since an essential parameter of main function is the functional form 'fun', the following are simple utility functions to deal with the slots in it:
+
+slotNumber[fun_Function]:=
+	Length@slotArgs[fun]
+slotArgs[fun_Function]:=
+	Union@Cases[fun, _Slot, Infinity]
+slotReplace[fun_Function]:=
+	Normal@AssociationThread[slotArgs[fun], Table[Slot[i], {i, slotNumber[fun]}]]
+
+This function is used to manage the sub-functions appearing in the functional form 'fun', to be used only to better select the argument chamber:
+
+functionCatch[fun_Function]:=
+	Module[{a, p, patt, repl}, 
+		(*the following alternatives are imcomplete,  but it does not matter 
+		for the later use of functionCatch only in functionValues to select a chamber*)
+		patt = a_[p:PatternSequence[___, _Slot.., ___]..]|
+			a_[p:PatternSequence[___, Times[___, _Slot].., ___]..]|
+			a_[p:PatternSequence[___, Times[_Slot, ___].., ___]..]|
+			a_[p:PatternSequence[___, Times[___, _Slot, ___].., ___]..]|
+			a_[p:PatternSequence[___, Plus[___, _Slot].., ___]..]|
+			a_[p:PatternSequence[___, Plus[_Slot, ___].., ___]..]|
+			a_[p:PatternSequence[___, Plus[___, _Slot, ___].., ___]..];
+		repl = ReplaceAll[fun, patt:>Hold@Function[a[p]]];
+		Union@Cases[repl, h_Hold:>ReleaseHold[h], Infinity]]
+
+The following function computes the values of the functional form 'fun' over the argument range. The latter is determined by the parameters 'rg' and 'del', which are the full range for each round and the previous range combinations already computed and so to delete.
+
+ClearAll[functionValues]
+Options[functionValues] = Join[Options[functionChamber], {"SearchArguments"->Automatic, "OutputArguments"->False}];
+functionValues[fun_Function, rg_List, del_List:{}, opts:OptionsPattern[functionValues]]:=
+	Block[{funs, chamb, sel, sln, scrg, outer, args, vals, lv}, 
+	
+	scrg = OptionValue["SearchArguments"];
+	
+	Which[
+	
+		scrg === Automatic&&!OptionValue["ComplexArg"]&&OptionValue["RealValued"], 
+	(*when these options hold,  it is possible to restrict the argument chamber*)
+	funs = functionCatch[fun];
+	sel = Map[Hold@Evaluate@
+		functionChamber[slotArgs[#], 
+						#/.slotReplace[#], 
+						Sequence@@FilterRules[{opts}, Options[functionChamber]]]
+			/.{s_Slot}:>s&, 
+			funs];
+	chamb = Map[Select[rg, #/.slotReplace[#]]&, Function@@@sel];
+	sln = Map[slotNumber, funs];
+	outer = Flatten[MapThread[Table[#1, #2]&, {chamb, sln}], 1];, 
+	
+	scrg === Automatic&&Or[OptionValue["ComplexArg"], !OptionValue["RealValued"]], 
+	outer = Table[rg, slotNumber[fun]], 	
+
+	scrg =!= Automatic, 
+	outer = If[Head[scrg] === List, 
+			If[Depth[scrg] == 2, {scrg}, scrg], 
+			Lookup[scrg, slotArgs[fun]]]];
+	
+	lv = slotNumber[fun] - 1;
+
+	(*delete previously computed combinations:*)
+	args = Complement[Flatten[Outer[{##}&, Sequence@@outer], lv], del];
+	vals = Quiet[
+				If[!OptionValue["OutputArguments"], 
+				MapApply[fun, args], 
+				MapApply[{{##}, fun[##]}&, args]], {Power::infy, Infinity::indet}];
+	
+	(*delete singularities*)
+	{DeleteCases[vals, If[!OptionValue["OutputArguments"], 
+						ComplexInfinity|_DirectedInfinity|Indeterminate, 
+						{_, ComplexInfinity|_DirectedInfinity|Indeterminate}]], 
+	args}]
+
+Number digits
+
+The function which computes the number of digits in the given number 'num' and automatically sets the value of the option "SignificantDigits":
+
+ClearAll[autoDigits]
+
+autoDigits[num_?NumericQ]:=
+	Block[{rdg, posnz = 0}, 
+		If[MemberQ[{Integer, Rational}, Head[num]], Return[16]];
+		rdg = First@RealDigits[Chop@N@num]/.{
+					{PatternSequence[x__, 0, 0, 0.., 1]}:>PadRight[{x, 0}, 16], 
+				{PatternSequence[x__, y_, 9, 9.., 9]}:>PadRight[{x, y + 1}, 16]};
+		
+		(*this searches the position of the first nonzero digit from the right*)
+		If[rdg =!= {0}, 
+			If[$VersionNumber>=14.2, 
+			posnz = SelectFirst[Reverse@rdg, # != 0&->"Index"], 
+			While[posnz<=Length@rdg, 
+				posnz++;
+				If[Part[Reverse@rdg, posnz] != 0, Break[]
+						]]], 
+			posnz = 1];
+		Max[Length@rdg - posnz + 1, 2(*single digits are not allowed*)]]
+
+autoDigits[0.|0] = 1;
+
+autoDigits[num_Complex?NumericQ]:=
+	Max[autoDigits/@ReIm[num]]
+
+precisionFilter[num_?NumericQ, arg_, digits_Integer]:=
+	Abs[N[1 - arg / num, digits + 1]]<=10^( - digits + 1)
+
+Formula complexity
+
+The following function returns an real value which ranks the complexity of the final and intermediate formulae, determined essentially as the sum of the means between DigitsSum and 5 times IntegerLength of all integers appearing in the formula:
+
+digitSum[int_Integer]:=If[$VersionNumber>=14, DigitSum[int], Total@IntegerDigits[int]]
+
+ClearAll[formulaComplexity]
+
+formulaComplexity[form_?NumericQ]:=
+	N@Total[Cases[
+				Inactivate[form]
+		/.const_?(Quiet@MemberQ[Attributes[#], Constant]&):>1
+			/.c_Complex:>ReIm[c]
+				/.r:Rational[i1_Integer, i2_Integer]:>{i1, i2}
+					/.Inactive[Sqrt][arg_]:>Inactive[Sqrt[{arg, arg}]]
+						/.(b_^(m_×n_^( - 1)|{m_, n_})|{b_}^(m_×n_^( - 1)|{m_, n_})):>Table[b, Abs[n m]]
+							, 
+			_Integer, {0, Infinity}]
+				/.i_Integer:>Mean[{5IntegerLength[i], digitSum[i], Abs[N@i]^(1 / 2)}]]
+
+Also the argument range can be given a complexity value, which allows to increase the complexity threshold for each round:
+
+formulaComplexity[list_List]:=Max@Map[formulaComplexity, list]
+
+Algebraic numbers
+
+The following definitions modify RootApproximant so to safely deal with undefined and singular values. This will be used to compute linear combinations of the functional form through simple algebraic numbers (see below the options "AlgebraicAdd" and "AlgebraicFactor").
+
+(*this cell block takes about 2 seconds to evaluate*)
+(*this lookup table choice is somewhat arbitrary but can be customised through the option RootApproximantMethod*)
+absLookupBase:=absLookupBase = SortBy[
+	Flatten@Union[Range[100000000, 10^9, 10^5], Range[1000000, 100000000, 1000], Range[100000, 1000000, 10], Range[10000, 100000], Range[0, 10000, 1 / 10], ResourceFunction["FareyRange"][0, 1000, 10], ResourceFunction["FareyRange"][0, 100, 100], Sqrt@ResourceFunction["FareyRange"][0, 100, 50], (#)^(1 / 3)&/@ResourceFunction["FareyRange"][0, 100, 10], (#)^(1 / 4)&/@ResourceFunction["FareyRange"][0, 100, 10], (#)^(1 / 5)&/@ResourceFunction["FareyRange"][0, 100, 10], (#)^(1 / 6)&/@ResourceFunction["FareyRange"][0, 100, 10]], N];
+absLookupBaseN:=absLookupBaseN = N[absLookupBase];
+(*in case complex numbers are searched for*)
+phaseLookupBase:=phaseLookupBase = ResourceFunction["FareyRange"][ - 1, 1, 100];
+phaseLookupBaseN:=phaseLookupBaseN = N[phaseLookupBase];
+
+(*the global symbols absLookup and absLookupN are set later by the main function*)
+
+(*to avoid 2 s delay on the first evaluation,  evaluate them immediately as follows*)
+
+(*the following If is a hack to evaluate them immediately upon initialization,  without blocking resource tools Check,  Preview and Submit (for some reason they get stuck in examining the content this heavy symbols*)
+	(*for some reason after pressing Check you should also quit the kernel to avoid some delay*)
+	(*If[True, 
+		absLookup = absLookupBase;
+		absLookupN = absLookupBaseN;
+		phaseLookup = phaseLookupBase;
+		phaseLookupN = phaseLookupBaseN;];*)
+
+(*eliminate singular forms*)
+freeSingular = FreeQ[#, ComplexInfinity|_DirectedInfinity|Indeterminate]&;
+freeSymbol = Apply[And, Map[FreeQ[#, _Symbol]&, ReIm@N@#]]&;
+
+ClearAll[modifiedRootApproximant, modifiedRootApproximantMain]
+
+modifiedRootApproximantMain[r_, options:OptionsPattern[FindClosedForm]]:=
+Which[OptionValue["RootApproximantMethod"] === Automatic||Head[OptionValue["RootApproximantMethod"]] === List, 
+	Block[{posphase, phase, posabs, abs}, 
+		(*we should account for a complex phase too*)
+		posphase = ResourceFunction["SortedPosition"][
+							phaseLookupN,  - I / \[Pi] Log[r / Abs[r]]];
+		If[Length[posphase] == 2&&Last[posphase]>Length[phaseLookupN], posphase = posphase[[1]]];
+		phase = Which[Positive[r], 1, 
+					Positive[ - r],  - 1, 
+					True, 
+					Exp[I \[Pi] phaseLookup[[posphase]]]];
+		posabs = ResourceFunction["SortedPosition"][absLookupN, Abs[r]];
+		If[Length[posabs] == 2&&Last[posabs]>Length[absLookupN], posabs = posabs[[1]]];
+		abs = absLookup[[posabs]];
+		If[Head[phase] === List&&Head[abs] === List, 
+			Flatten@Outer[Times, phase, abs], 
+			phase  * abs]], 
+	OptionValue["RootApproximantMethod"] === "BuiltIn", 
+	RootApproximant[r]]
+
+modifiedRootApproximant[r_, options:OptionsPattern[FindClosedForm]]:=modifiedRootApproximantMain[r, options]
+
+modifiedRootApproximant[s_?(!freeSingular), options:OptionsPattern[FindClosedForm]]:=Indeterminate;
+modifiedRootApproximant[s_?(!FreeQ[#, _Symbol]&), options:OptionsPattern[FindClosedForm]]:=
+	Block[{sn}, 
+		sn = N[s];
+		If[freeSymbol[sn], 
+			modifiedRootApproximantMain[sn, options], 
+			Indeterminate]]
+
+Higher roots of relatively simple form which will be kept, but complicated and uninteresting approximate roots are to be deleted:
+
+deletedRootPatterns = HoldPattern[_->_?(!FreeQ[#, Root]&)];
+
+Rational simplification
+
+A replacement function to round and simplify rationals:
+
+ClearAll[orderMagnitude]
+orderMagnitude[x_?NumericQ]:=Block[{log, digits, first}, 
+						log = Floor[Log10[Abs[x]]];
+						digits = First@RealDigits[N@x];
+						first = First@digits;
+						Which[first<5, log, first>5, log + 1, first == 5&&digits[[2]]<=5, log, first == 5&&digits[[2]]>5, log + 1]]
+orderMagnitude[x_Complex?NumericQ]:=
+	Max[orderMagnitude/@Chop@N@ReIm[x]]
+
+
+ClearAll[simplifyRational]
+simplifyRational[num_?NumericQ, fun_Function, digits_?Positive, complexity:_?Positive|Infinity, operation_Symbol, form_]:=
+	
+	r:Rational[n_Integer, m_Integer]:>
+		
+		If[fun =!= Function@Identity[#](*the rationals are to be kept if the function searched is the Identity*), 
+			
+			Block[{round, precQ, ordr, cont, fc, contsimp}, 
+				
+				round = Round[r, Min[Power[10,  - digits + orderMagnitude[r]], 
+									Power[10,  - digits + orderMagnitude[num]]]];
+				
+				(*check whether the precision of the match increases or not,  otherwise discard the simplication*)
+				precQ = precisionFilter[num, operation[#, form], digits]&;
+
+				(*rounding does not work for periodic rationals,  so truncate their continued fraction*)
+				If[formulaComplexity[round]<=2formulaComplexity[r], 
+
+					If[formulaComplexity[round]<=complexity&&precQ[round], 
+							
+							round, 
+	
+							ordr = orderMagnitude[round] + 1;
+							cont = ContinuedFraction[round];
+							fc = Power[10, orderMagnitude@Max[Abs@cont[[1]], 1]];
+							contsimp = FromContinuedFraction@
+									ReplaceAll[
+											cont, 
+										{{x1_, y_?(Abs@#>=fc Power[10, Max[5 - ordr, 5]]&), z___}:>{x1}, 
+										{x1_, xr__, y_?(Abs@#>=fc Power[10, Max[4 - ordr, 4]]&), z___}:>{x1, xr}, 
+										{x1_, x2_, xr__, y_?(Abs@#>=fc Power[10, Max[3 - ordr, 3]]&), z___}:>{x1, x2, xr}}];
+							If[precQ[contsimp], 
+								contsimp, 
+								r]
+							], 
+					r]], 
+
+			r]
+
+Wolfram Alpha
+
+This function queries closed forms directly from WolframAlpha, but restricts the result to match the desired number of digits and of limited complexity.
+
+ClearAll[queryWA]
+queryWA[num_?NumericQ, digits_?Positive, complexity:_?Positive|Infinity, res_]:=
+	Block[{quernum, queries, queriesprec, queriescompl}, 
+		quernum = Round@res;
+		queries = Quiet[
+					Which[quernum == 0, 
+					{Missing[]}, 
+					1<=quernum<=3, 	
+					Table[
+						WolframAlpha[ToString[num], 
+								{{"PossibleClosedForm", i}, "FormulaData"}], 
+					{i, 1, quernum}], 
+					4<=quernum, 
+					Table[
+						WolframAlpha[ToString[num], 
+								{{"PossibleClosedForm", i}, "FormulaData"}, 
+								PodStates->{"PossibleClosedForm__More"}], 
+					{i, 1, If[quernum<=10, quernum, 10]}]], {URLFetch::invhttp(*, WolframAlpha::timeout*)}];
+		queries = Map[Apply[Apply@Rule, #]&, DeleteMissing@queries];
+		queries = DeleteMissing@Keys@queries;
+		queries = Select[ToRadicals@queries, (!MatchQ[#, _Rational]&&FreeQ[#, _Root])&];
+		queriesprec = Select[queries, precisionFilter[num, #, digits]&];
+		queriescompl = Select[queriesprec, formulaComplexity[#]<=complexity&]]
+
+Search round
+
+Sub search round
+
+The elementary argument search function, depending on the operation ("Times", "Plus" or "None") used to search for extra algebraic numbers in the formula:
+
+ClearAll[subSearchRound]
+subSearchRound[num_?NumericQ, fun_Function, range_List, rangePrev_Association, digits_?Positive, complexity:_?Positive|Infinity, operation_String, options:OptionsPattern[FindClosedForm]]:=
+	Block[{rootoper, precoper, compoper, replrational, complexQ, precPatt, complPatt, argQ, 
+			rangecollect, comb, nrange, algeb, result, simpresult}, 
+	
+			(*operation for RootApproximant*)
+			rootoper = Quiet[
+						
+							Which[operation == "Times", 
+							modifiedRootApproximant[num / #, options], 
+							operation == "Plus", 
+							modifiedRootApproximant[num - #, options]], 
+						{Power::infy, Infinity::indet}]&;
+			
+			(*operation for precision check*)
+			precoper = Which[
+							operation == "Times", 
+							If[
+								freeSymbol[#[[1]]], 
+							#[[1]]#[[2]]], 
+						operation == "Plus", 
+							If[
+								freeSymbol[#[[1]]], 
+							#[[1]] + #[[2]]], 
+						operation == "None", 
+							If[
+								freeSymbol[#], 
+							#]]&;
+	
+			precPatt[arg_]:=precisionFilter[num,  precoper[arg], digits];
+	
+			(*final composition operation*)
+			compoper = Which[
+							operation === "Times", 
+							Times, 
+						operation === "Plus", 
+							Plus, 
+						operation === "None", 
+							Identity];
+	
+			complPatt[arg1_, arg2___]:=If[operation =!= "None", 
+											formulaComplexity[Replace[compoper[arg1, arg2], replrational[compoper, arg1], 1]]
+												<=complexity, 
+											formulaComplexity[arg1]<=complexity];
+											
+			rangecollect = rangePrev;
+		
+			replrational[oper_, form_]:=simplifyRational[num, fun, digits, complexity, oper, form];
+	
+			complexQ = Im[num] == 0;
+	
+			argQ = OptionValue["OutputArguments"];
+	
+			(*evaluation of funcional form over the previous range*)
+			{comb, nrange} = functionValues[
+								fun, 
+							range, 
+							rangePrev[operation], 
+							"Operation"->operation, 
+							"ComplexArg"->OptionValue["SearchComplex"], 
+							"RealValued"->complexQ, 
+							"SearchArguments"->OptionValue["SearchArguments"], 
+							"OutputArguments"->argQ];
+			
+			(*update of range*)
+			rangecollect[operation] = Union[rangecollect[operation], nrange];
+			
+			If[operation != "None", 
+			
+			(*compuation of additional algebraic numbers*)
+			(*parallelization must change*)
+				algeb = If[!OptionValue["OutputArguments"], 
+						AssociationMap[rootoper, comb], 
+						AssociationMap[rootoper[#[[2]]]&, comb]];
+			
+			(*elimination of singularities*)
+				algeb = Select[algeb, freeSingular];
+				algeb = KeySelect[algeb, freeSingular];
+				
+				
+				If[OptionValue["RootApproximantMethod"] === "BuiltIn", 	
+				(*elimination of complicated roots*)
+				algeb = DeleteCases[Normal@algeb//ToRadicals
+										(*keep simple higher roots*), 
+										deletedRootPatterns]];
+	
+	
+				(*eliminate invalid approximations*)
+				algeb = Cases[
+								If[!argQ, 
+								ReplaceAll[Normal@algeb, 
+											p:HoldPattern[_->_List]:>Thread[p]], 
+								ReplaceAll[Normal@algeb, 
+											HoldPattern[{x1_, x2_}->l_List]:>
+												MapAt[Append[{x1}, #]&, Thread[x2->l], {All, 1}]]]
+							//Flatten, 
+							If[!argQ, 
+								HoldPattern[_->_]?(precPatt[#]&), 
+								HoldPattern[_->_]?(precPatt[{#[[1, 2]], #[[2]]}]&)]];
+	
+				(*eliminate complex formulae*)
+				algeb = Cases[
+								Normal@algeb, 
+							If[!argQ, 
+								HoldPattern[_->_]?(complPatt[#[[1]], #[[2]]]&), 
+								HoldPattern[_->_]?(complPatt[#[[1, 2]], #[[2]]]&)]];
+			
+				If[algeb =!= {}(*<||>*), 
+					(*reconstruct the result*)
+					result = Union@MapApply[If[!argQ, compoper[##], {#1[[1]], compoper[#1[[2]], #2]}]&, algeb];
+		
+				If[(*unless the function is the identity,  eliminate rational solutions*)
+					(fun =!= Function@Identity[#]
+						&&(!OptionValue["RationalSolutions"])
+						&&If[Length[result] == 1, 
+							If[!argQ, 
+								Head[result[[1]]] === Rational, 
+								Head[result[[1, 2]]] === Rational], 
+							If[!argQ, 
+								result = DeleteCases[result, _Rational], 
+								result = DeleteCases[result, {_, _Rational}]];False]), 
+		
+						Return[{{}, rangecollect}], 
+			
+						simpresult = Union@MapApply[
+										If[!argQ, 
+										Replace[compoper[##], replrational[compoper, #1], 1], 
+										{#1[[1]], Replace[compoper[#1[[2]], #2], replrational[compoper, #2], 1]}]&, 
+									algeb];
+						Return[{simpresult, rangecollect}]
+		
+						], 
+	
+					Return[{{}, rangecollect}]], 
+			
+				(*simplified module in case no extra algebraic number is searched*)
+				comb = Select[comb, freeSingular];
+				comb = Cases[comb, 
+								If[OptionValue["OutputArguments"], 
+									_?(precisionFilter[num, precoper[#[[2]]], digits]&), 
+									_?(precisionFilter[num, precoper[#], digits]&)]];
+				result = Cases[comb, 
+								If[OptionValue["OutputArguments"], 
+									_?(formulaComplexity[#[[2]]]<=complexity&), 
+									_?(formulaComplexity[#]<=complexity&)]];
+				Return[{result, rangecollect}]];
+		
+			]
+
+Search round
+
+The basic argument search round:
+
+ClearAll[searchRound]
+
+searchRound[num_?NumericQ, fun_Function, res_Integer, cut_Integer, rangePrev_Association, digits_?Positive, complexity:_?Positive|Infinity, options:OptionsPattern[FindClosedForm]]:=
+	searchRound[num, fun, res, rangeFull[cut, "ComplexArg"->OptionValue["SearchComplex"], "SearchRange"->OptionValue["SearchRange"]], rangePrev, digits, complexity, options]
+
+searchRound[num_?NumericQ, fun_Function, res_Integer, rangeAss_Association, rangePrev_Association, digits_?Positive, complexity:_?Positive|Infinity, options:OptionsPattern[FindClosedForm]]:=
+	searchRound[num, fun, res, Lookup[rangeAss, slotArgs[fun]], rangePrev, digits, complexity, options]
+
+searchRound[num_?NumericQ, fun_Function, res_Integer, range_List, rangePrev_Association, digits_?Positive, complexity:_?Positive|Infinity, options:OptionsPattern[FindClosedForm]]:=
+	Block[{rangecollect, resN, resT, resP, result}, 
+		
+		rangecollect = rangePrev;
+		
+		{resN, rangecollect} = subSearchRound[num, fun, range, rangecollect, digits, complexity, "None", options];
+		If[resN =!= {}&&Length[resN]>=res, Return[{resN, rangecollect}]];	
+
+		If[OptionValue["AlgebraicFactor"], 
+		{resT, rangecollect} = subSearchRound[num, fun, range, rangecollect, digits, complexity, "Times", options];
+		If[resT =!= {}&&Length[resN] + Length[resT]>=res, Return[{Union[resN, resT], rangecollect}]], 
+		resT = {};];
+
+		If[OptionValue["AlgebraicAdd"], 
+		{resP, rangecollect} = subSearchRound[num, fun, range, rangecollect, digits, complexity, "Plus", options];
+		If[resP =!= {}&&Length[resN] + Length[resT] + Length[resP]>=res, Return[{Union[resT, resP, resN], rangecollect}]], 
+		resP = {}];
+
+		result = Union[resT, resP, resN];
+
+		{result, rangecollect}]
+
+Main function
+
+Finally the main function, calling the argument search round and further searching over the list of functional forms:
+
+ClearAll[FindClosedForm]
+Options[FindClosedForm] = {"SignificantDigits"->Automatic, "FormulaComplexity"->Automatic, "WolframAlphaQueries"->3, "SearchQueries"->Automatic, "MonitorSearch"->False, "AlgebraicFactor"->True, "AlgebraicAdd"->True, "RootApproximantMethod"->Automatic, "RationalSolutions"->False, "SearchArguments"->Automatic, "OutputArguments"->False, "SearchRange"->"Farey", "SearchComplex"->False, "MaxSearchRounds"->50, "SearchTimeLimit"->3600};
+
+(*main function distinct from FindClosedForm[num, funL, res, options] because of the argument WAres,  used to avoid duplication of WolframAlpha results*) 
+
+mainFindClosedForm[num_?NumericQ, funL_List, res_Integer, WAres_List, options:OptionsPattern[FindClosedForm]]/;SubsetQ[{Function, Symbol}, Union@Map[Head, funL]]:=
+	Block[{funList, complexityF, digits, try, tryold, argQ, rtmet, args, argsout, rgval, pDo, searchblock, rangecollect, rangenew, f, resultbuild, result, resultcount}, 
+
+			funList = Map[#/.slotReplace[#]&(*in case the slots are unordered*), 
+					Table[If[Head[fun] === Symbol, Evaluate@fun[#]&, fun], {fun, funL}]];
+
+			digits = If[OptionValue["SignificantDigits"] === Automatic, 
+					autoDigits[num], 
+					OptionValue["SignificantDigits"]];
+				
+			complexityF[fn_, arg_]:=
+				If[OptionValue["FormulaComplexity"] === Automatic, 
+					1 / 2(1 + Sqrt@slotNumber[fn]) * If[
+							Length@funList>=10, 
+						(*possibly specify a different value with many functions,  since the risk of confusion increases*)
+						15 + formulaComplexity[arg], 
+						15 + formulaComplexity[arg]], 
+					OptionValue["FormulaComplexity"]];
+
+			try = result = {}(*the list of results*);
+
+			argQ = OptionValue["OutputArguments"];
+			args = argsout = {};
+
+			resultcount = 0;
+
+			(*function which builds the result when found*)
+			resultbuild:=If[!argQ, 
+							(*sort the results by complexity*)
+							Take[SortBy[
+										DeleteCases[Union@try, 
+												(*delete redundant WA results*)
+												Which[Length[WAres]>=2, Alternatives@@WAres, 
+														Length[WAres] == 1, WAres[[1]], 
+														True, {}]], 
+									formulaComplexity], 
+								UpTo[res]], 
+
+							(*output association with arguments*)
+							(*sort both results and arguments by complexity*)
+							Take[KeySortBy[SortBy[
+											Select[AssociationThread[argsout, try], 
+												!MemberQ[WAres, #]&], 
+										formulaComplexity], formulaComplexity], 
+								UpTo[res]]];
+						
+			(*the argument range,  tracked and updated for each round,  to avoid redundant evaluations*)
+			rangenew = rangecollect = 
+					AssociationThread[
+								funList, 
+							Table[<|"Times"->{}, "Plus"->{}, "None"->{}|>, Length[funList]]];
+
+			rgval = OptionValue["SearchArguments"];
+
+			(*determine the possible algebraic numbers appearing in the formula*)
+			(*the first time this evaluates it takes 2 s more*)
+			rtmet = OptionValue["RootApproximantMethod"];
+			If[And[Head[rtmet] === List, rtmet =!= {Automatic, Automatic}], 
+
+				Which[
+					Or[Depth[rtmet] == 2, Depth[rtmet] == 3&&rtmet[[2]] === Automatic], 
+					absLookup = rtmet;
+					absLookupN = N[absLookup, Max[digits, 16]], 
+				Depth[rtmet] == 3&&rtmet[[1]] === Automatic, 
+					phaseLookup = rtmet[[2]];
+					phaseLookupN = N[phaseLookup, Max[digits, 16]], 
+				Depth[rtmet] == 3, 
+					{absLookup, phaseLookup} = rtmet;
+					{absLookupN, phaseLookupN} = N[{absLookup, phaseLookup}, Max[digits, 16]]], 
+
+				absLookup = absLookupBase;
+				absLookupN = absLookupBaseN;
+				phaseLookup = phaseLookupBase;
+				phaseLookupN = phaseLookupBaseN];
+
+
+			(*the main subfunction to search over argument and function ranges*)
+			searchblock:=
+				
+				
+				Do[	
+						Block[{rootnew, rg, compl, resultnew}, 
+						(*set this parameter to the round number / cutoff or to the custom argument range*)
+						
+						tryold = try;
+
+						rg = If[rgval === Automatic, cut, rgval];
+						
+						(*compute the complexity for each round*)
+						compl = complexityF[f, 
+								If[rgval === Automatic, 
+									Flatten@rangeFull[
+											cut, 
+										"ComplexArg"->OptionValue["SearchComplex"], 
+										"SearchRange"->OptionValue["SearchRange"]], 
+									If[Head[rgval] === Association, 
+										Flatten@Values@rgval, 
+										Flatten@rgval]]];
+						
+						(*evaluate the argument search round*)
+						{rootnew, rangenew[f]} = 
+							searchRound[num, f, res, rg, rangecollect[f], digits, compl, options];
+						try = If[!argQ, 
+								DeleteDuplicates@Join[try, rootnew], 
+								Join[try, Last/@rootnew]];
+						If[argQ, 
+							args = Join[args, First/@rootnew];
+							argsout = If[Length[funL] != 1, 
+										MapApply[Inactivate[Evaluate[f]][##]&, args], 
+										args]];
+						rangecollect[f] = Merge[{rangecollect[f], rangenew[f]}, Flatten[#, 1]&];
+						
+						(*print temporarily the results found*)
+						(*end the function search round if all required results are found*)
+						If[Length[try]>=Length[tryold], 
+
+							resultnew = Drop[try, Length[tryold]];
+							
+							MapIndexed[
+									PrintTemporary[
+										"Search result "<>ToString[resultcount + #2[[1]]]<>": ", 
+									#]&, 
+								resultnew];
+							resultcount = resultcount + Length[resultnew];
+
+							result = resultbuild;
+
+							If[Length[result] == res, Return[result]]];], 
+
+						(*loop over the argument and function search rounds*)
+						Evaluate@If[OptionValue["SearchArguments"] === Automatic, 
+								Sequence@@{
+										{cut, 1, OptionValue["MaxSearchRounds"]}, 
+									{f, funList}}, 
+								{f, funList}]];
+			
+			(*allow safe abort returning partial results even if not all of them are found*)
+			CheckAbort[
+					(*abort beyond the search time limit*)
+					TimeConstrained[
+						If[rgval === Automatic, 
+				
+							If[!OptionValue["MonitorSearch"], 
+								searchblock, 
+								(*monitor round and function*)
+								Monitor[
+										searchblock, 
+									If[Length[funList] == 1, cut, {cut, f}]]], 
+				
+							If[!OptionValue["MonitorSearch"], 
+								searchblock, 
+								(*monitor only function with custom argument range*)
+								Monitor[
+										searchblock, 
+									f]]
+							], 
+					OptionValue["SearchTimeLimit"]], 
+
+				If[# === {}||# === <||>, Return[$Aborted], #]&@
+					resultbuild];
+				
+				result]
+
+
+(*the most general defintion*)
+
+FindClosedForm[num_?NumericQ, funL_List, res_Integer, options:OptionsPattern[FindClosedForm]]/;SubsetQ[{Function, Symbol}, Union@Map[Head, funL]]:=
+	mainFindClosedForm[num, funL, res, {}, options]
+
+
+(*specify only the number and search over the most common single argument functions*)
+(*call WA only in this case*)
+
+FindClosedForm[num_?NumericQ, res_Integer, options:OptionsPattern[FindClosedForm]]:=
+	Block[{funList, digits, complexity, resultWA, searchqueries, resultS}, 
+
+			digits = If[OptionValue["SignificantDigits"] === Automatic, 
+					autoDigits[N@num], 
+					OptionValue["SignificantDigits"]];
+			
+			complexity = If[OptionValue["FormulaComplexity"] === Automatic, 50, OptionValue["FormulaComplexity"]];
+
+			resultWA = queryWA[num, digits, complexity, 
+							Min[Max[res, OptionValue["WolframAlphaQueries"]], OptionValue["WolframAlphaQueries"]]];
+
+			If[Length[resultWA]>=res, Return[Take[resultWA, UpTo[res]]]];
+
+			If[Length[resultWA]>=1, MapIndexed[PrintTemporary["WolframAlpha result "<>ToString@#2[[1]]<>": ", #]&, resultWA]];
+			
+			searchqueries = If[OptionValue["SearchQueries"] === Automatic, 
+								res - Length[resultWA], 
+								Min[OptionValue["SearchQueries"], res - Length[resultWA]]];
+
+			If[searchqueries == 0, Return[resultWA]];
+
+			funList = {\[Pi]^#&, EulerGamma^#&, Catalan^#&, 
+					GoldenRatio^#&, Glaisher^#&, Khinchin^#&, 
+					Sin[\[Pi] #]&, Cos[\[Pi] #]&, Tan[\[Pi] #]&, 
+					ArcSin[#]&, ArcCos[#]&, ArcTan[#]&, ArcCot[#]&, 
+					Log[#]&, Exp[#]&, Sinh[#]&, Cosh[#]&, Tanh[#]&, 
+					ArcSinh[#]&, ArcCosh[#]&, ArcTanh[#]&, ArcCoth[#]&, 
+					Zeta[#]&, Gamma[#]&, PolyGamma[#]&, 
+					EllipticK[#]&, EllipticE[#]&, 
+					Erf[#]&, InverseErf[#]&, BarnesG[#]&, 
+					AiryAi[#]&, AiryBi[#]&};
+			
+			If[OptionValue["SearchComplex"], 
+				(*these functions are not defined for real arguments*)
+				funList = Join[funList, 
+					{DedekindEta[#]&, ModularLambda[#]&}]];
+
+			resultS = mainFindClosedForm[num, funList, searchqueries, resultWA, options];
+						
+			If[resultS =!= $Aborted, 
+				If[Head[resultS] =!= Association, 
+					DeleteDuplicates@Join[resultWA, resultS], 
+					Join[resultWA, {resultS}]], 
+				$Aborted]]
+
+(*only one result,  the most common case*)
+
+FindClosedForm[num_?NumericQ, funL___List, options:OptionsPattern[FindClosedForm]]:=
+	Block[{search}, 
+	search = FindClosedForm[num, funL, 1, options];
+	If[Length@search == 1, If[Head[search] === Association, search, First@search], If[search === $Aborted, $Aborted, None]]]
+
+(*specify only one functional form*)
+
+FindClosedForm[num_?NumericQ, f:_Function|_Symbol, res___Integer, options:OptionsPattern[FindClosedForm]]:=
+	FindClosedForm[num, {f}, res, options]
+
+(*use the identify functional form as symbol*)
+
+FindClosedForm[num_?NumericQ, Identity, res___Integer, options:OptionsPattern[FindClosedForm]]:=
+	FindClosedForm[num, {Identity[#]&}, res, options]
+
+Documentation
+
+UsageUsageDocument input usage cases by first typing an input structure, then pressing -Dynamic-
+
+ to add a brief explanation of the function’s behavior for that structure. Pressing -Dynamic-
+
+ repeatedly will create new cases as needed. Every input usage case defined above should be demonstrated explicitly here.
+
+See existing documentation pages for examples.
+
+
+
+
+
+
+
+FindClosedForm[y]
+
+searches for equivalents to the given number y
+
+ from common mathematical functions.
+
+FindClosedForm[y, n]
+
+returns up to n
+
+ results for the number y
+
+.
+
+FindClosedForm[y, f]
+
+searches for a formula with the given functional form f
+
+.
+
+FindClosedForm[y, f, n]
+
+returns up to n
+
+ results.
+
+FindClosedForm[y, {f1, f2, …}]
+
+searches for a formula for the given number y
+
+, among the given list of functional forms fi
+
+.
+
+FindClosedForm[y, {f1, f2, …}, n]
+
+returns up to n
+
+ results.
+
+Details & OptionsNotesGive a detailed explanation of how the function is used and configured (e.g. acceptable input types, result formats, options specifications, background information). This section may include multiple cells, bullet lists, tables, hyperlinks and additional styles/structures as needed.
+
+Add any other information that may be relevant, such as when the function was first discovered or how and why it is used within a given field. Include all relevant background or contextual information related to the function, its development, and its usage.
+
+
+
+
+
+
+
+FindClosedForm
+
+ helps to solve the fundamental problem of Number Recognition <Number Recognition>, by searching and finding a possible closed formula for a given number y
+
+, in terms of arbitrary combinations of elementary and higher mathematical functions.
+
+Before starting any search, FindClosedForm[y, n]
+
+ queries Wolfram Alpha <Wolfram Alpha> for possible closed forms of the given number. If this query does not return the required number of results with sufficient precision, the main search algorithm begins.
+
+The fundamental strategy exploited by the search algorithm of FindClosedForm
+
+ is that, given a pure Function <Function> f
+
+, progressively more complex rational arguments are tried for it, until a numerical match with the given value y
+
+ is found. By default, this match is searched up to linear combinations with algebraic numbers (rationals or roots), as produced by RootApproximant <RootApproximant>.
+
+When only the first argument y
+
+ is specified, for each round of argument search, a further search goes on through the following quite common mathematical functions:
+{Sin <Sin>, Cos <Cos>, Tan <Tan>, ArcSin <ArcSin>, ArcCos <ArcCos>, ArcTan <ArcTan>, ArcCot <ArcCot>, Log <Log>, Exp <Exp>, Sinh <Sinh>, Cosh <Cosh>, Tanh <Tanh>, ArcSinh <ArcSinh>, ArcCosh <ArcCosh>, ArcTanh <ArcTanh>, ArcCoth <ArcCoth>, Zeta <Zeta>, Gamma <Gamma>, PolyGamma <PolyGamma>, Erf <Erf>, InverseErf <InverseErf>, EllipticK <EllipticK>, EllipticE <EllipticE>, BarnesG <BarnesG>, AiryAi <AiryAi>, AiryBi <AiryBi>, DedekindEta <DedekindEta>, ModularLambda <ModularLambda>}. In addition, FindClosedForm searches a numerical match among algebraic combinations of the following mathematical constants: {Pi <Pi>, GoldenRatio <GoldenRatio>, Catalan <Catalan>, EulerGamma <EulerGamma>, Khinchin <Khinchin>, Glaisher <Glaisher>}.
+
+The second argument can be a mathematical function f
+
+ or a list of them, each with arbitrary form and any number of arguments, which have to be specified as pure functions (that is, with one or more Slot <Slot> in their arguments).
+
+In some cases, more than one valid formula can be found. The desired number of results must be specified as a second or third argument.
+
+Notice that the search may take a very long time. If multiple results are requested but only partial results are found, they are printed temporarily <printed temporarily> to let the user know. If the user decides to abort the search, the earlier results are kept and returned safely.
+
+FindClosedForm accepts the following options:
+
+"SignificantDigits"
+
+	Automatic <Automatic>
+
+	the precision of the numerical match
+
+	
+"FormulaComplexity"
+
+	Automatic <Automatic>
+
+	the complexity degree allowed for the closed form
+
+	
+"WolframAlphaQueries"
+
+	3
+
+	set the number of Wolfram Alpha queries to be tried
+
+	
+"SearchQueries"
+
+	Automatic <Automatic>
+
+	set the maximum number of queries for the search algorithm
+
+	
+"MonitorSearch"
+
+	False <False>
+
+
+
+
+
+	whether to monitor the argument and function search rounds
+
+	
+"AlgebraicAdd"
+
+	True <True>
+
+	whether to search a numerical match up to addition of algebraic numbers
+
+	
+"AlgebraicFactor"
+
+	True <True>
+
+	whether to search a numerical match up to multiplication by algebraic numbers
+
+	
+"RootApproximantMethod"
+
+	Automatic <Automatic>
+
+	specify the method to use while identifying algebraic numbers
+
+	
+"RationalSolutions"
+
+	False <False>
+
+	whether simple rational solutions are allowed
+
+	
+"SearchArguments"
+
+	Automatic <Automatic>
+
+	specify the particular arguments to search
+
+	
+"SearchRange"
+
+	"Farey"
+
+	the type of argument range, for each search round
+
+	
+"SearchComplex"
+
+	False <False>
+
+	whether to search complex arguments
+
+	
+"MaxSearchRounds"
+
+	50
+
+	limit the number of argument search rounds
+
+	
+"SearchTimeLimit"
+
+	3600
+
+	the maximum number of seconds spent on the search
+
+	
+
+The value for the option "SignificantDigits" is set automatically to the number of digits (before 0) specified in the given number y
+
+ and is used to determine the order of magnitude of the relative error allowed for the numerical match. It is possible to specify a lower or higher value, so to ignore some numerical error, or require a stricter match.
+
+The value for the option "FormulaComplexity", for any closed form formula, is a positive real which can be custom set or computed as follows: 
+i) take all integers appearing in the formula, possibly being part of rational, algebraic or complex numbers; 
+ii) if a root appears, duplicate its argument a number of times equal to the root degree;
+iii) for each integer, compute the mean among the square root <square root> of its absolute value, its DigitSum <DigitSum> and 5 times its IntegerLength <IntegerLength>;
+iv) take the total of these means.
+
+The option "WolframAlphaQueries" sets the number of queries to be tried directly on Wolfram Alpha <Wolfram Alpha>. Notice these can be unsuccessful, because the result of each query: i) may be not precise enough (as determined by "SignificantDigits"); ii) may be too complex (as determined by "FormulaComplexity"); iii) or may not have a corresponding Wolfram Language formula representation.
+
+The option "SearchQueries"
+
+ determines the number of results to be searched through the main search algorithm of FindClosedForm. When the default Automatic <Automatic>
+
+ is used, it is taken to be the difference between number of results required, n
+
+, and the number of successful results returned by Wolfram|Alpha. Otherwise it is possible to set its value to 0, to make FindClosedForm
+
+ effectively return only the selected results from Wolfram|Alpha.
+
+If the options "AlgebraicAdd"
+
+ or "AlgebraicFactor"
+
+ are set to True <True>, the numerical match is searched up to addition or multiplication by algebraic numbers, respectively.
+
+If the option "RootApproximantMethod" is set to "BuiltIn", these algebraic numbers are all those found through the built-in functions RootApproximant <RootApproximant> and ToRadicals <ToRadicals>. If instead the option "RootApproximantMethod" is set to Automatic <Automatic>
+
+, the algebraic numbers are assumed to have one of the absolute values equal to a "small" integer, fraction or fraction root. The complex phase <complex phase> of  algebraic numbers is assumed to be within a \[Pi] -multiple of a "small" fraction. It is also possible to specify the value for the option "RootApproximantMethod"
+
+ as custom table of possible absolute values, or as a list of an absolute value table and complex phase table.
+
+Summarizing, the possible values for the option "RootApproximantMethod" are the following:
+
+"BuiltIn"
+
+	find the algebraic numbers through RootApproximant <RootApproximant>
+
+	
+Automatic <Automatic>
+
+
+
+	find the algebraic numbers rapidly within a default lookup table
+
+	
+{abs1, abs2, …}
+
+
+
+	find the algebraic numbers' within a custom lookup table containing absolute values
+
+	
+{abs1, …, z1, …}
+
+
+
+	absolute values and complex values with non-negative real and imaginary components
+
+	
+
+If the option "RationalSolutions"
+
+ is set to True <True>, simple rational solutions are allowed. These are typically trivial, so unless the function searched for is the Identity <Identity>, or both "AlgebraicAdd"
+
+ or "AlgebraicFactor"
+
+ are set to False <False>, the default value for this option is False <False> and thus no simple rational can be returned.
+
+If the option "SearchArguments"
+
+ is set to Automatic <Automatic>, the algorithm automatically tries arguments within an increasingly larger range each, with a cutoff equal to the search round (or function of it). Notice that argument ranges at successive rounds do overlap, but the program does not recompute the previously tried arguments combinations. In particular, special values for the option "SearchRange"
+
+, as functions of the search round, are the following:
+
+"Farey"
+
+	a rational Farey range, ResourceFunction["FareyRange"] <https://resources.wolframcloud.com/FunctionRepository/resources/FareyRange/>[ - #, #, #
+
+]&
+
+	
+"Plain"
+
+	the rational range Range <Range>[ - #, #, 1 / #
+
+]&
+
+	
+"Integer"
+
+	the purely integer range Range <Range>[ - #, #
+
+]&
+
+	
+r[#]&
+
+
+
+	a custom Function <Function> of the search round
+
+	
+
+Arguments to be tried can be specified through the option "SearchArguments"
+
+ as a List <List> - if there is only one Slot <Slot> - or as a list of lists - one for each slot - or as an Association <Association> between slots and lists, as keys and values respectively, as follows:
+
+Automatic <Automatic>
+
+
+
+	all arguments within the search range for each round
+
+	
+{list
+
+}
+
+	Slot <Slot>[1] arguments within list
+
+	
+{list1, list2, …
+
+}
+
+	Slot <Slot>[1] within list1
+
+, Slot <Slot>[2] within list2, etc.
+
+
+
+	
+<|#1 -> list1, #2->list2
+
+, …|>
+
+	Slot <Slot>[1] within list1
+
+, Slot <Slot>[2] within list2, etc.
+
+
+
+	
+
+The default output of FindClosedForm
+
+ is a list <list> of all the closed forms found, with no duplicates. However, sometimes the functional form may evaluate in such a way to lose information on the arguments used. Through the option "OutputArguments"
+
+ set to True <True>, also the arguments can be returned in the output, as keys of an association <association> with the corresponding closed forms.
+
+If the option "SearchComplex"
+
+ is set to True <True>, the search range, for each round, is the complex numbers extension of the ranges determined by the option "SearchRange", as realized through ResourceFunction[ComplexRange] <https://resources.wolframcloud.com/FunctionRepository/resources/ComplexRange/>.
+
+
+
+The value for the option "MaxSearchRounds"
+
+ sets the number of search rounds to be tried before terminating the program. Similarly the maximum time spent by the search algorithm can be set through the option "SearchTimeLimit"
+
+. If the search terminates with no closed form is found, the output of FindClosedForm
+
+ is None <None>.
+
+ExamplesExamplesDemonstrate the function’s usage, starting with the most basic use case and describing each example in a preceding text cell.
+
+Within a group, individual examples can be delimited by inserting page breaks between them (either using [Right-click] ▶ Insert Page Break
+
+ between cells or through the menu using Insert ▶ Page Break
+
+).
+
+Examples should be grouped into Subsection and Subsubsection cells similarly to existing documentation pages. Here are some typical Subsection names and the types of examples they normally contain:
+  ◼ Basic Examples: 
+
+most basic function usage
+  ◼ Scope: 
+
+input and display conventions, standard computational attributes (e.g. threading over lists)
+  ◼ Options: 
+
+available options and parameters for the function
+  ◼ Applications: 
+
+standard industry or academic applications
+  ◼ Properties and Relations: 
+
+how the function relates to other functions
+  ◼ Possible Issues: 
+
+limitations or unexpected behavior a user might experience
+  ◼ Neat Examples: 
+
+particularly interesting, unconventional, or otherwise unique usage
+
+
+
+
+
+
+
+Basic Examples
+
+Find a possible mathematical function for a number:
+
+FindClosedForm[0.405465]
+
+Log[3/2]
+
+	
+
+
+
+Find possible closed form for a number in terms of common mathematical functions:
+
+FindClosedForm[3.792277]
+
+1/6 + Gamma[1/4]
+
+	
+
+
+
+Find formulae in terms of mathematical constants:
+
+FindClosedForm[3.311601]
+
+5/3 + \[Pi]^2/6
+
+FindClosedForm[1.044866]
+
+1/√Catalan
+
+	
+
+
+
+Specify the functional form of a formula in the second argument as a pure function:
+
+FindClosedForm[1.85653, 1 / Zeta[#]^2&]
+
+1/Zeta[1/5]^2
+
+FindClosedForm[ - 0.309033, PolyLog[#1, #2]&]
+
+PolyLog[2,  - 1/3]
+
+Scope
+
+Get four results:
+
+FindClosedForm[3.3116, 4]
+
+{ - 3 E/2 + E^2, √10 \[Pi]/3, E^\[Pi] - 8 \[Pi] + Log[64 \[Pi]], 8/47 + \[Pi]}
+
+The results are all approximately equivalent:
+
+N[%]
+
+{3.3116333562420825`, 3.311529421932034`, 3.311564373269994`, 3.3118054195472397`}
+
+	
+
+
+
+Differing results of FindClosedForm
+
+ can turn out to be strictly equivalent:
+
+FindClosedForm[0.69314718, 4]
+
+{Log[2], 2 ArcCoth[3], ArcCoth[5/3], 2 ArcTanh[1/3]}
+
+FullSimplify@Apply[Equal, %]
+
+True
+
+	
+
+
+
+Get ten results based on Log
+
+:
+
+FindClosedForm[0.405465, Log, 10]
+
+{Log[3/2], 1/2 Log[9/4], 1/3 Log[27/8], 23/31 - Log[7/5], 2/65 + Log[16/11],  - 2/67 + Log[17/11], 15/32 Log[19/8], Log[74/9]/3 √3, 11/59 Log[44/5], 25/91 Log[35/8]}
+
+N[%]
+
+{0.4054651081081644`, 0.4054651081081644`, 0.4054651081081644`, 0.40546324724975485`, 0.40546268021064147`, 0.4054673249891888`, 0.4054675488218459`, 0.4054616463253237`, 0.40546218536145373`, 0.40546882412351043`}
+
+	
+
+
+
+The numerical match with the functional form is searched up to addition or multiplication by an algebraic number (that is, a Rational
+
+ or Root
+
+):
+
+FindClosedForm[ - 1.185732, PolyGamma[#]&]
+
+7/9 + PolyGamma[0, 1/2]
+
+FindClosedForm[0.780653, ArcSinh]
+
+1/6 √5 ArcSinh[4]
+
+The arguments can also be roots:
+
+FindClosedForm[1.054136, BarnesG[Sqrt[2] #]&]
+
+BarnesG[7/3 √2]
+
+	
+
+
+
+Specify the form of any function combination, with a number of arguments:
+
+FindClosedForm[7.443967, Log[1 + Exp[#]]&]
+
+10 Log[1 + E^1 / 10]
+
+FindClosedForm[4.688231, Gamma[#1]/Gamma[#2]&]
+
+2 √3 Gamma[1/4]/Gamma[1/3]
+
+FindClosedForm[0.7299085, HypergeometricU[#1, #2, #3]&]
+
+HypergeometricU[1/2, 1/3, 1]
+
+	
+
+
+
+Search through a list of functional forms:
+
+FindClosedForm[5.550045, {Sinh, Cosh, Sech, Csch}]
+
+6 Sech[2/5]
+
+FindClosedForm[ - 1.479735, {EllipticK[#]&, EllipticE[#]&, EllipticPi[#1, #2]&}]
+
+2 √3 EllipticPi[7/3, 2/3]
+
+Options
+
+AlgebraicAdd
+
+Setting the option "AlgebraicAdd" to False
+
+ allows one to search the specified functional form, up to multiplication (but not addition) by an algebraic number. This can vastly speed up the search, since special range properties are exploited for certain known functions:
+
+FindClosedForm[0.1013578, 1/Gamma[#1]Gamma[#2]&, "AlgebraicAdd"->False]//AbsoluteTiming
+
+{0.657246`, 1/√\[Pi] Gamma[1/6]}
+
+Compare with the longer time required without this option:
+
+FindClosedForm[0.1013578, 1/Gamma[#1]Gamma[#2]&]//AbsoluteTiming
+
+{9.864759`, 1/√\[Pi] Gamma[1/6]}
+
+AlgebraicFactor
+
+Setting the option "AlgebraicFactor" to False
+
+ allows one to search the specified functional form, up to addition (but not multiplication) of an algebraic number:
+
+FindClosedForm[ - 9.6530201, PolyGamma[#1] + PolyGamma[#2]&, "AlgebraicFactor"->False]//AbsoluteTiming
+
+{1.502604`, 3 + PolyGamma[0, 1/7] + PolyGamma[0, 1/5]}
+
+Compare with the longer time required without this option:
+
+FindClosedForm[ - 9.6530201, PolyGamma[#1] + PolyGamma[#2]&]//AbsoluteTiming
+
+{57.219815`, 3 + PolyGamma[0, 1/7] + PolyGamma[0, 1/5]}
+
+	
+
+
+
+If both "AlgebraicAdd" and "AlgebraicFactor" options are set to False
+
+, the search can be faster but may miss linear combinations of the functional form:
+
+FindClosedForm[0.3057349, PolyLog[#1, #2]&, "AlgebraicFactor"->False, "AlgebraicAdd"->False]//AbsoluteTiming
+
+{1.566948`, PolyLog[1/2, 1/4]}
+
+FindClosedForm[0.3057349, PolyLog[#1, #2]&]//AbsoluteTiming
+
+{6.142823`, PolyLog[1/2, 1/4]}
+
+FormulaComplexity
+
+If not enough digits are specified, a careful balance between precision and complexity of the result should be reached through the option "FormulaComplexity". In fact, often the desired formula is likely to be the simplest. For example:
+
+FindClosedForm[38.94017, Gamma]
+
+151/4 + Gamma[7/9]
+
+The result has the desired functional form and matches the digits:
+
+N[%, 7]
+
+38.9401511869128745188`7.
+
+However, by reducing the allowed complexity threshold, a simpler result is found:
+
+FindClosedForm[38.94017, Gamma, "FormulaComplexity"->15]
+
+2 Gamma[1/20]
+
+N[%, 7]
+
+38.9401706225110326735`7.
+
+	
+
+
+
+By setting "FormulaComplexity"
+
+ high, more intrinsically complex formulas can be found:
+
+FindClosedForm[4.51766814,  Gamma[#2]^3/Gamma[#1]^2 + Identity[#3](Gamma[#1]^2/Gamma[#2])&, "FormulaComplexity"->100]
+
+\[Pi]^3 / 2/8 Gamma[2/3]^2 + 4 Gamma[2/3]^2/√\[Pi]
+
+N[%, 9]
+
+4.517668141675086726`9.
+
+MaxSearchRounds
+
+The maximum number of argument search rounds is set to 50 by default. If the value of the option "SearchRange" is set to Automatic
+
+, this also means that the maximum integer argument and maximum rational argument denominator are both 50:
+
+FindClosedForm[49.44221, Gamma, "AlgebraicAdd"->False, "AlgebraicFactor"->False, "SearchRange"->"Plain"]
+
+Gamma[1/50]
+
+By default, larger or smaller arguments respectively are not reachable:
+
+FindClosedForm[59.43902, Gamma, "AlgebraicAdd"->False, "AlgebraicFactor"->False, "SearchRange"->"Plain"]
+
+None
+
+Changing the value for the option "MaxSearchRounds" allows a solution to be found:
+
+FindClosedForm[59.43902, Gamma, "MaxSearchRounds"->100, "AlgebraicAdd"->False, "AlgebraicFactor"->False, "SearchRange"->"Plain"]
+
+Gamma[1/60]
+
+MonitorSearch
+
+If the option "MonitorSearch" is set to True
+
+, the search round number is printed temporarily during evaluation:
+
+FindClosedForm[20.0758, Gamma[#]^2&, "MonitorSearch"->True]
+
+ - 1 + Gamma[1/5]^2
+
+	
+
+
+
+If only one argument is specified, or a list of functions appears in the second argument, the function being evaluated is printed also:
+
+FindClosedForm[3.940443, {ArcSin, ArcCos, ArcTan, ArcCot}, "MonitorSearch"->True]
+
+4 ArcSin[5/6]
+
+OutputArguments
+
+If the option "OutputArguments" is set to True
+
+, the output is an association with the function arguments:
+
+FindClosedForm[1.32325, Gamma[#1] / Gamma[#2]&, "OutputArguments"->True]
+
+\[LeftAssociation]{1/2, 1/3}->2 √\[Pi]/Gamma[1/3]\[RightAssociation]
+
+Gamma[#1] / Gamma[#2]&[Sequence@@Keys[%][[1]]]
+
+√\[Pi]/Gamma[1/3]
+
+	
+
+
+
+This option is especially useful in the case the functional form evaluates in such a way so to lose information on its arguments. For example, find a matrix whose determinant is equal to a certain number:
+
+FindClosedForm[19/18, Det[{{#1, #2}, {#3, #4}}]&, "OutputArguments"->True, "AlgebraicAdd"->False, "AlgebraicFactor"->False]
+
+\[LeftAssociation]{ - 3,  - 2/3,  - 2/3,  - 1/2}->19/18\[RightAssociation]
+
+Det[{{#1, #2}, {#3, #4}}]&[Sequence@@Keys[%][[1]]]
+
+19/18
+
+RationalSolutions
+
+By default, the option "RationalSolutions" is set to False
+
+. This means no simple rational solution is considered valid and more sophisticated solutions are searched for:
+
+FindClosedForm[0.25, Sin[\[Pi] #]&, "RationalSolutions"->False, "AlgebraicAdd"->False]
+
+8/25 Cos[3 \[Pi]/14]
+
+N[%, 4]
+
+0.2501860743897695388`4.
+
+	
+
+
+
+If the option "RationalSolutions" is set to True
+
+, a simpler exact solution can be found:
+
+FindClosedForm[0.25, Sin[\[Pi] #]&, "RationalSolutions"->True, "AlgebraicAdd"->False]
+
+1/4
+
+	
+
+
+
+If the functional form searched for is the Identity
+
+, there is no need of this option:
+
+FindClosedForm[0.25, Identity[#]&]
+
+1/4
+
+	
+
+
+
+Similarly when both the "AlgebraicFactor" and "AlgebraicAdd" options are set to false, rational solutions are automatically allowed:
+
+FindClosedForm[0.5, Sin[\[Pi] #]&, "AlgebraicAdd"->False, "AlgebraicAdd"->False]
+
+1/2
+
+The solution in this case is clearly:
+
+Sin[\[Pi] / 6]
+
+1/2
+
+RootApproximantMethod
+
+By default, only a limited set of algebraic numbers can be obtained (through a pre-defined lookup table):
+
+FindClosedForm[1.32471796, Identity, "FormulaComplexity"->300]
+
+ - 13/16 + (953/10)^1 / 6
+
+N[%, 9]
+
+1.3247179682465987477`9.
+
+It is possible to recognize other algebraic numbers by using the built-in function RootApproximant
+
+, through the option "RootApproximantMethod" set to "BuiltIn":
+
+FindClosedForm[1.32471796, Identity, "FormulaComplexity"->300, "RootApproximantMethod"->"BuiltIn"]
+
+(2/3 (9 - √69))^1 / 3 + (1/2 (9 - √69))^1 / 3/3^2 / 3
+
+N[%, 9]
+
+1.324717957244746026`9.
+
+	
+
+
+
+The problem with the built-in method is that most of the time is spent trying to recognize random reals as higher roots and this makes the search much slower. In this example, the search using the built-in method is over 100 times slower (and requires one more digit):
+
+FindClosedForm[0.4711847, "WolframAlphaQueries"->0]//AbsoluteTiming
+
+{0.218164`, √2 EulerGamma^2}
+
+FindClosedForm[0.47118474, "WolframAlphaQueries"->0, "RootApproximantMethod"->"BuiltIn"]//AbsoluteTiming
+
+{28.636794`, √2 EulerGamma^2}
+
+N[%[[2]], 7]
+
+0.4711847385321854633`7.
+
+	
+
+
+
+As an intermediate solution, in case some algebraic number is missed and you still want a fast search, you could specify a custom lookup table:
+
+TimeConstrained[FindClosedForm[1.25964392365, Gamma, "FormulaComplexity"->Infinity], 30]
+
+$Aborted
+
+FindClosedForm[1.2596439236, Gamma, "FormulaComplexity"->Infinity, "RootApproximantMethod"->ResourceFunction["FareyRange"][0, 1, 2000]]//AbsoluteTiming
+
+{0.967378`, 789 Gamma[1/3]/1678}
+
+N[%[[2]], 11]
+
+1.25964392364982889329817742568259880857`11.
+
+Notice that the built-in method may miss or misinterpret some algebraic numbers:
+
+TimeConstrained[FindClosedForm[1.2596439236, Gamma, "FormulaComplexity"->Infinity, "RootApproximantMethod"->"BuiltIn", "MonitorSearch"->True]//AbsoluteTiming, 120]
+
+{3.610695`, 279 + √4741179/35598 + Gamma[7/3]}
+
+N[%[[2]], 11]
+
+1.25964392360000646085844657878750109145`11.
+
+	
+
+
+
+In case complex algebraic numbers are searched for, you can specify a custom table for their phases:
+
+FindClosedForm[7.38814 + 0.11606I, Exp, "RootApproximantMethod"->{Automatic, Range[ - 1, 1, 1 / 200]}]
+
+E^2 + I \[Pi]/200
+
+Without this option, the complex phase is assumed to be within \[Pi]
+
+ ResourceFunction["FareyRange"][
+
+-1,1,1/100]:
+
+FindClosedForm[7.38541 + 0.23209I, Exp]
+
+E^2 + I \[Pi]/100
+
+SearchArguments
+
+Through the option "SearchArguments" you can specify each particular search argument to be tried:
+
+FindClosedForm[4.678938, Gamma[#]&, "SearchArguments"->{3, 1, 1 / 3}]//AbsoluteTiming
+
+{0.009718`, 2 + Gamma[1/3]}
+
+This can vastly speed up the search and serves as a debugging tool.
+
+	
+
+
+
+If more than one argument appears in the functional form, you can specify "SearchArguments" as a list of lists, or equivalently as an association:
+
+FindClosedForm[1.32325, Gamma[#1] / Gamma[#2]&, "SearchArguments"->{{1, 1 / 2}, {3, 1, 1 / 3}}]
+
+2 √\[Pi]/Gamma[1/3]
+
+FindClosedForm[1.32325, Gamma[#1] / Gamma[#2]&, "SearchArguments"-><|#1->{1, 1 / 2}, #2->{3, 1, 1 / 3}|>]
+
+2 √\[Pi]/Gamma[1/3]
+
+SearchComplex
+
+Search for complex values of the argument:
+
+FindClosedForm[0.572198 + 0.15332I, DedekindEta, "SearchComplex"->True]
+
+DedekindEta[1 + 2 I]
+
+Notice that this option determines only the complex character of the arguments, while complex values by themselves do not necessarily require it:
+
+FindClosedForm[12.56637 - 10.53566I, ArcSin, "SearchComplex"->False]
+
+8 ArcSin[2]
+
+SearchQueries
+
+Return only the results from Wolfram Alpha by setting the option "SearchQueries" to 0:
+
+FindClosedForm[1.62186, "SearchQueries"->0]
+
+Log[81/16]
+
+If you specify a higher number, the number of results remains bounded by the second integer argument:
+
+FindClosedForm[1.62186, 4, "SearchQueries"->5]
+
+{Log[81/16], 4 Log[3/2], 7 AiryAi[1/2], 12/17 + Catalan}
+
+N[%]
+
+{1.6218604324326575`, 1.6218604324326575`, 1.621855245365834`, 1.6218479471183955`}
+
+SearchRange
+
+By default, for each search round the arguments span the Farey range determined by ResourceFunction["FareyRange"]
+
+[ - round, round, round]
+
+. For example:
+
+ResourceFunction["FareyRange"][ - 3, 3, 3]
+
+{ - 3,  - 8/3,  - 5/2,  - 7/3,  - 2,  - 5/3,  - 3/2,  - 4/3,  - 1,  - 2/3,  - 1/2,  - 1/3, 0, 1/3, 1/2, 2/3, 1, 4/3, 3/2, 5/3, 2, 7/3, 5/2, 8/3, 3}
+
+FindClosedForm[0.442109, PolyLog[#1, #2]&]//AbsoluteTiming
+
+{0.820438`, PolyLog[1/2, 1/3]}
+
+	
+
+
+
+Otherwise, it is possible to set the option "SearchRange" to "Plain", which creates the shorter rational range Range[ - round, round, 1 / round]
+
+:
+
+Range[ - 6, 6, 1 / 6]//Length
+
+73
+
+FindClosedForm[14.911818, Gamma[#1]Gamma[#2]&, "SearchRange"->"Plain"]//AbsoluteTiming
+
+{3.461793`, Gamma[1/6] Gamma[1/3]}
+
+Notice the longer time required with the default "Farey" range:
+
+ResourceFunction["FareyRange"][ - 6, 6, 6]//Length
+
+145
+
+FindClosedForm[14.911818, Gamma[#1]Gamma[#2]&]//AbsoluteTiming
+
+{10.677301`, Gamma[1/6] Gamma[1/3]}
+
+Of course, for other arguments, the converse may be true.
+
+	
+
+
+
+Another possible value for this option is "Integer", whereby only integer arguments are searched within the range Range[ - round, round]
+
+:
+
+Range[ - 7, 7]
+
+{ - 7,  - 6,  - 5,  - 4,  - 3,  - 2,  - 1, 0, 1, 2, 3, 4, 5, 6, 7}
+
+FindClosedForm[6.263643, Log[#1]Log[#2]&, "SearchRange"->"Integer"]//AbsoluteTiming
+
+{0.235296`, 2 Log[5] Log[7]}
+
+	
+
+
+
+It is possible to specify, as an option value, a custom range function of the search round number:
+
+FindClosedForm[13.165149, Log, "SearchRange"->Function@Range[0, 100#, 25]]//AbsoluteTiming
+
+{0.283903`, √3 Log[2000]}
+
+SearchTimeLimit
+
+Limit the time spent by the search algorithm:
+
+FindClosedForm[3.3116007, 10, "SearchTimeLimit"->30]//AbsoluteTiming
+
+{40.131298`, {5/3 + \[Pi]^2/6, 23/10 + Log[11/4], 176/31 + PolyGamma[0, 3/7], 85/21 EllipticK[ - 80/9]}}
+
+N[%[[2]], 8]
+
+{3.3116007335148931032`8., 3.3116009116784799252`8., 3.3116005975437270803`8., 3.3116006996147398712`8.}
+
+Notice that, as in this example, the total time spent by the function may be higher than this option's value, because the time spent on querying Wolfram Alpha is not counted in it.
+
+SignificantDigits
+
+The option "SignificantDigits" is automatically set to the number of real digits (before 0) specified in the given number. If you want to ignore some numerical error, you can specify a lower value for it:
+
+res = FindClosedForm[0.81248057539, 1 / Zeta[#]^2&, "SignificantDigits"->7]
+
+1/Zeta[11/3]^2
+
+Without this option setting, the same call takes a large amount of time:
+
+TimeConstrained[FindClosedForm[0.81248057539, 1 / Zeta[#]^2&], 30]
+
+$Aborted
+
+The numerical error is less than the required precision:
+
+(N[res, 10] - 0.81248057539) / %
+
+ - 6.953922402883548`*^-8
+
+	
+
+
+
+Specify more significant digits than those available (consider extra digits as valid zeros):
+
+FindClosedForm[0.693147, Log]
+
+Log[2]
+
+TimeConstrained[FindClosedForm[0.693147, Log, "SignificantDigits"->10], 30]
+
+$Aborted
+
+The search is unsuccessful because the higher digits do not match:
+
+(N[Log[2], 8] - 0.693147) / Log[2]
+
+2.6049293770877916`*^-7
+
+Keep in mind that, with significant numerical error, the search for the right formula becomes much harder.
+
+WolframAlphaQueries
+
+The number of Wolfram Alpha query results returned is, by default, 3:
+
+FindClosedForm[3.3116, 3]
+
+{ - 3 E/2 + E^2, √10 \[Pi]/3, E^\[Pi] - 8 \[Pi] + Log[64 \[Pi]]}
+
+You can either reduce or increase this number by setting the option "WolframAlphaQueries" to another number:
+
+FindClosedForm[3.3116, 3, "WolframAlphaQueries"->2]
+
+{ - 3 E/2 + E^2, √10 \[Pi]/3, 8/47 + \[Pi]}
+
+FindClosedForm[3.3116, 4, "WolframAlphaQueries"->4]
+
+{ - 3 E/2 + E^2, √10 \[Pi]/3, E^\[Pi] - 8 \[Pi] + Log[64 \[Pi]], 39 \[Pi]/37}
+
+	
+
+
+
+Notice that the queries may be unsuccessful, so this option just sets an upper limit:
+
+FindClosedForm[3.3116, 10, "WolframAlphaQueries"->10, "SearchQueries"->0]
+
+{ - 3 E/2 + E^2, √10 \[Pi]/3, E^\[Pi] - 8 \[Pi] + Log[64 \[Pi]], 39 \[Pi]/37,  - 2/\[Pi] + 4 √\[Pi] - \[Pi], 17 \[Pi]^4/500}
+
+N[%]
+
+{3.3116333562420825`, 3.311529421932034`, 3.311564373269994`, 3.3114084727027544`, 3.3116029776646894`, 3.311909095156083`}
+
+Applications
+
+Besides finding formulae for raw numbers, FindClosedForm[y, f]
+
+ can be used for verifying relations among special functions. For example, the following identity for EllipticK
+
+ in terms of Gamma
+
+ is not trivial to prove through symbolic computation:
+
+EllipticK[2] ==  - 4 ( - 1)^3 / 4 Gamma[5/4]^2/√\[Pi]//Map[N]
+
+True
+
+EllipticK[2] ==  - 4 ( - 1)^3 / 4 Gamma[5/4]^2/√\[Pi]//FullSimplify
+
+EllipticK[2]==(2 - 2 I) √2/\[Pi] Gamma[5/4]^2
+
+However, FindClosedForm[y, f]
+
+ can easily verify it:
+
+FindClosedForm[N[EllipticK[2]], Gamma[#1]^2 / Gamma[#2]&, "AlgebraicAdd"->False]
+
+4 E^ - I \[Pi]/4 Gamma[5/4]^2/√\[Pi]
+
+	
+
+
+
+Verify a formula for EllipticPi
+
+ in terms of Gamma
+
+ and Identity
+
+:
+
+FindClosedForm[N[EllipticPi[1 / 2, 1 / 2]],  Gamma[#2]^3/Gamma[#1]^2 + Identity[#3](Gamma[#1]^2/Gamma[#2])&, "AlgebraicAdd"->False, "FormulaComplexity"->100]
+
+\[Pi]^3 / 2/8 Gamma[5/4]^2 + 4 Gamma[5/4]^2/√\[Pi]
+
+EllipticPi[1 / 2, 1 / 2] == \[Pi]^3 / 2/8 Gamma[5/4]^2 + 4 Gamma[5/4]^2/√\[Pi]//Map[N]
+
+True
+
+	
+
+
+
+Find relations among different arguments of the same function through FindClosedForm[y, f, n]
+
+:
+
+FindClosedForm[N[DedekindEta[1 + 2I]], DedekindEta, 15, "SearchComplex"->True, "FormulaComplexity"->100]
+
+{DedekindEta[1 + 2 I], DedekindEta[1 + I/2]/√2, E^I \[Pi]/12 DedekindEta[2 I], E^I \[Pi]/4 DedekindEta[ - 2 + 2 I], E^I \[Pi]/3 DedekindEta[ - 3 + 2 I], E^I \[Pi]/6 DedekindEta[ - 1 + 2 I], E^ - I \[Pi]/4 DedekindEta[4 + 2 I], E^ - I \[Pi]/6 DedekindEta[3 + 2 I], E^ - I \[Pi]/12 DedekindEta[2 + 2 I], E^5 I \[Pi]/12 DedekindEta[ - 4 + 2 I], E^I \[Pi]/12 DedekindEta[I/2]/√2, E^I \[Pi]/4 DedekindEta[ - 2 + I/2]/√2, E^I \[Pi]/3 DedekindEta[ - 3 + I/2]/√2, E^I \[Pi]/6 DedekindEta[ - 1 + I/2]/√2, E^ - I \[Pi]/4 DedekindEta[4 + I/2]/√2}
+
+Equal@@N[%, 40]
+
+True
+
+	
+
+
+
+FindClosedForm[y, f, n]
+
+ can be also used to find solutions to underdetermined systems of equations. For example, find instances of matrices whose determinant is equal to a certain number:
+
+FindClosedForm[19/18, Det[{{#1, #2}, {#3, #4}}]&, 20, "OutputArguments"->True, "AlgebraicAdd"->False, "AlgebraicFactor"->False]
+
+\[LeftAssociation]{ - 3,  - 2/3,  - 2/3,  - 1/2}->19/18, { - 3, 2/3, 2/3,  - 1/2}->19/18, { - 3/2,  - 2/3,  - 2/3,  - 1}->19/18, { - 3/2, 2/3, 2/3,  - 1}->19/18, { - 1,  - 2/3,  - 2/3,  - 3/2}->19/18, { - 1, 2/3, 2/3,  - 3/2}->19/18, { - 2/3,  - 3, 1/2, 2/3}->19/18, { - 2/3,  - 3/2, 1, 2/3}->19/18, { - 2/3,  - 1, 3/2, 2/3}->19/18, { - 2/3,  - 1/2, 3, 2/3}->19/18, { - 2/3, 1/2,  - 3, 2/3}->19/18, { - 2/3, 1,  - 3/2, 2/3}->19/18, { - 2/3, 3/2,  - 1, 2/3}->19/18, { - 2/3, 3,  - 1/2, 2/3}->19/18, { - 1/2,  - 2/3,  - 2/3,  - 3}->19/18, { - 1/2, 2/3, 2/3,  - 3}->19/18, {1/2,  - 2/3,  - 2/3, 3}->19/18, {1/2, 2/3, 2/3, 3}->19/18, {2/3,  - 3, 1/2,  - 2/3}->19/18, {2/3,  - 3/2, 1,  - 2/3}->19/18\[RightAssociation]
+
+Union@MapApply[Det[{{#1, #2}, {#3, #4}}]&, Keys[%]]
+
+{19/18}
+
+Compare with the solutions found through the built-in functions Reduce
+
+ and FindInstance <FindInstance>:
+
+Reduce[Det[{{t, x}, {y, z}}] == 19 / 18, {t, x, y, z}]
+
+(t!=0&&z==19 + 18 x y/18 t)||(t==0&&x!=0&&y== - 19/18 x)
+
+FindInstance[And[%,  - 3<=x<=3,  - 3<=y<=3,  - 3<=z<=3,  - 3<=t<=3], {t, x, y, z}, Rationals, 10]
+
+{{t->0, x-> - 607/379, y->7201/10926, z-> - 3}, {t->0, x-> - 499/379, y->7201/8982, z->3}, {t->0, x-> - 321/379, y->7201/5778, z->3}, {t->0, x-> - 239/379, y->7201/4302, z-> - 13/17}, {t->0, x->176/379, y-> - 7201/3168, z->35/17}, {t->0, x->229/379, y-> - 7201/4122, z-> - 3}, {t->0, x->295/379, y-> - 7201/5310, z->3}, {t->0, x->535/379, y-> - 7201/9630, z-> - 3}, {t->0, x->535/379, y-> - 7201/9630, z->3}, {t->0, x->946/379, y-> - 7201/17028, z->3}}
+
+Union[Det[{{t, x}, {y, z}}]/.%]
+
+{19/18}
+
+Properties and Relations
+
+FindClosedForm[y, Identity]
+
+ generalizes the function Rationalize
+
+ and works with fewer digits:
+
+Rationalize[0.6666666666666]
+
+2/3
+
+FindClosedForm[0.666, Identity]
+
+2/3
+
+	
+
+
+
+When the given number approximates a simple root, FindClosedForm[y, Identity]
+
+ also generalizes the functions RootApproximant
+
+ and ToRadicals
+
+:
+
+RootApproximant[4.2426407]
+
+3 √2
+
+FindClosedForm[4.243, Identity]
+
+3 √2
+
+ToRadicals@RootApproximant[0.58480355]
+
+1/5^1 / 3
+
+FindClosedForm[0.5848, Identity]
+
+1/5^1 / 3
+
+	
+
+
+
+When the formula involves only one argument (and no further multiplied or added algebraic number appears), FindClosedForm[y, f]
+
+ also generalizes FindRoot
+
+:
+
+Rationalize@FindRoot[3.229211228053242 == BesselK[1, x], {x, 1.}]
+
+{x->2/7}
+
+BesselK[1, x]/.%
+
+BesselK[1, 2/7]
+
+FindClosedForm[3.22921, BesselK[1, #]&, "AlgebraicAdd"->False, "AlgebraicFactor"->False]
+
+BesselK[1, 2/7]
+
+Source & Additional Information
+
+Contributed ByContributed ByEnter the name of the person, people or organization that should be publicly credited with contributing this function.
+
+
+
+
+
+
+
+Daniele Gregori
+
+KeywordsKeywordsList relevant terms (e.g. functional areas, algorithm names, related concepts) that should be used to include the function in search results.
+
+
+
+
+
+
+
+numbers
+
+digits
+
+formulas
+
+closed form
+
+number recognition
+
+mathematical functions
+
+Categories
+
+ [ ]  Cloud & Deployment	
+ [ ]  Data Manipulation & Analysis	
+ [ ]  External Interfaces & Connections	
+ [ ]  Geographic Data & Computation	
+ [ ]  Graphs & Networks	
+ [ ]  Images	
+ [ ]  Knowledge Representation & Natural Language	
+ [ ]  Notebook Documents & Presentation	
+ [ ]  Repository Tools	
+ [ ]  Social, Cultural & Linguistic Data	
+ [ ]  Strings & Text	
+ [ ]  System Operation & Setup	
+ [ ]  User Interface Construction	
+ [ ]  Wolfram Physics Project		 [ ]  Core Language & Structure	
+ [ ]  Engineering Data & Computation	
+ [ ]  Financial Data & Computation	
+ [ ]  Geometry	
+ [-]  Higher Mathematical Computation	
+ [ ]  Just For Fun	
+ [ ]  Machine Learning	
+ [ ]  Programming Utilities	
+ [ ]  Scientific and Medical Data & Computation	
+ [ ]  Sound & Video	
+ [-]  Symbolic & Numeric Computation	
+ [ ]  Time-Related Computation	
+ [ ]  Visualization & Graphics	
+		
+
+Related SymbolsRelated SymbolsList up to twenty documented, system-level Wolfram Language symbols related to the function.
+
+
+
+
+
+
+
+Rationalize
+
+RootApproximant
+
+ToRadicals
+
+FunctionExpand
+
+FindRoot
+
+FindFormula
+
+FindSequenceFunction
+
+Related Resource ObjectsRelated Resource ObjectsList the names of published resource objects from any Wolfram repository that are related to this function.
+
+
+
+
+
+
+
+RootDegree
+
+RadicalDenest
+
+Source/Reference CitationSource/Reference CitationGive a bibliographic-style citation for the original source of the function and/or its components (e.g. a published paper, algorithm, or code repository).
+
+
+
+
+
+
+
+Source, reference or citation information
+
+LinksLinksList additional URLs or hyperlinks for external information related to the function.
+
+
+
+
+
+
+
+Wolfram|Alpha: Computational Intelligence <https://www.wolframalpha.com>
+
+RIES Equation Solver Online <https://thomasahle.com/ries/>
+
+AskConstants™ <https://math.hawaii.edu/~dale/AskConstants/AskConstants.html>
+
+TestsVerificationTestsSpecify an optional list of tests for verifying that the function is working properly in any environment. Tests can be specified as Input/Output cell pairs or as symbolic VerificationTest
+
+ expressions for including additional options.
+
+
+
+
+
+
+
+MyFunction[x, y]
+
+CompatibilityCompatibilitySpecify any known compatibilities for your function to ensure it is discoverable on the correct platforms.
+
+
+
+
+
+
+
+Wolfram Language VersionCompatibilityWolframLanguageVersionRequiredEnter required Wolfram Language Version (e.g. 12.1+).
+
+
+
+
+
+
+
+13.0+
+
+Operating SystemCompatibilityOperatingSystemSelect all operating systems where your function is expected to function properly.
+
+
+
+
+
+
+
+ [-]  Windows		 [-]  Mac		 [-]  Unix		
+
+Required FeaturesCompatibilityFeaturesChoose any other features that are required
+
+ in order to use your function.
+
+
+
+
+
+
+
+ [ ]  Notebooks		 [ ]  Parallel Kernels		 [ ]  Cloud Access		
+
+EnvironmentsCompatibilityEvaluationEnvironmentSelect all evaluation environments where your function is expected to be compatible. See $EvaluationEnvironment
+
+ for more details.
+
+
+
+
+
+
+
+ [-]  SessionLocal or cloud interactive session	
+ [-]  WebEvaluationCloud evaluation initiated by an HTTP request	
+ [-]  BatchJobRemote batch job		 [-]  ScriptScript run in batch mode	
+ [-]  WebAPIAPI called through an HTTP request	
+		 [-]  SubkernelParallel or grid subkernel	
+ [-]  ScheduledScheduled task	
+		
+
+Cloud SupportCompatibilityCloudSupportSpecify whether your function is expected to work in the public cloud.
+
+
+
+
+
+
+
+ [X]  Supported in cloud		
+
+Author NotesAuthor NotesThis section, when used, will appear near the bottom of the published resource. Content displayed in this section can include background, possible improvements, additional information and/or implementation details that are otherwise beyond the scope of the function documentation.
+
+
+
+
+
+
+
+The development of this function benefitted from suggestions by the Wolfram review team.
+
+Submission NotesSubmission NotesEnter any additional information that you would like to communicate to the reviewer here. This section will not be included in the published resource.
+
+
+
+
+
+
+
+Additional information for the reviewer.
+
