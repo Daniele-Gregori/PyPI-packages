@@ -15,7 +15,7 @@ authors = [
 maintainers = [
     { name = "Daniele Gregori", email = "dangregori@gmail.com" },
 ]
-keywords = ["mathematics", "transcendental", "number-theory", "symbolic", "algebraic", "wolfram"]
+keywords = ["mathematics", "transcendental", "transcendent", "number-theory", "symbolic", "algebraic", "wolfram"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",

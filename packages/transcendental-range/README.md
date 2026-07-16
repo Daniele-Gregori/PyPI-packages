@@ -11,6 +11,10 @@ A Python port of the Wolfram Language resource function
 [TranscendentalRange](https://resources.wolframcloud.com/FunctionRepository/resources/TranscendentalRange)
 (version 1.1.0), returning exact [sympy](https://www.sympy.org/) expressions.
 
+```
+pip install transcendental-range
+```
+
 ```python
 from transcendental_range import transcendental_range
 
@@ -49,9 +53,9 @@ inverse forms, plus algebraic powers:
 
 | Form | Description |
 |------|-------------|
-| `transcendental_range(x)` | transcendentals *b* f(*a*) with 1 ≤ *t* ≤ *x* |
-| `transcendental_range(x, y)` | with *x* ≤ *t* ≤ *y* |
-| `transcendental_range(x, y, s)` | generators stepped by *s* (negative *s* for descending) |
+| `transcendental_range(x)` | transcendentals *t* = *b* f(*a*) with 1 ≤ *t* ≤ *x*, *a* and *b* in `range(1, x+1)` |
+| `transcendental_range(x, y)` | with *x* ≤ *t* ≤ *y*, *a* and *b* in `range(x, y+1)` |
+| `transcendental_range(x, y, s)` | *a* and *b* in `range(x, y+1, s)` (negative *s* for descending) |
 | `transcendental_range(x, y, s, d)` | minimum difference *d* between successive elements |
 
 Every element is an exact sympy expression, sorted by numerical value;
@@ -70,7 +74,6 @@ product (see [Performance](#performance)).
 | `farey_range` | `False` | step denominators as in the Farey sequence |
 | `formula_complexity_threshold` | `inf` | limit the complexity of the expressions |
 | `working_precision` | `15` | precision of all internal numerical evaluations |
-| `test` | `False` | development only: naive baseline implementation |
 
 ### method
 
@@ -190,14 +193,7 @@ transcendental_range(20, 25, method='tanh', working_precision=30)
 cleared of algebraic values, deduplicated and sorted — but the actual
 monotonicity-aware implementation is far more efficient than the outer
 product over large exponentially-growing ranges, and every method is
-verified against that naive baseline (available as `test=True`) in the
-test suite:
-
-```python
-transcendental_range(-2, 2, Rational(1, 2)) == \
-    transcendental_range(-2, 2, Rational(1, 2), test=True)
-# True
-```
+verified against that naive baseline in the test suite.
 
 ## Performance
 
