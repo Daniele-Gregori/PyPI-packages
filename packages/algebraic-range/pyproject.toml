@@ -63,3 +63,4 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["benchmark: performance benchmarks (skipped in CI)"]

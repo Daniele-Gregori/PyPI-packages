@@ -433,6 +433,7 @@ _BENCH = [
 ]
 
 
+@pytest.mark.benchmark
 @pytest.mark.parametrize("name,func,ref", _BENCH, ids=[b[0] for b in _BENCH])
 def test_10_benchmarks(name, func, ref):
     base = _reference_time()
