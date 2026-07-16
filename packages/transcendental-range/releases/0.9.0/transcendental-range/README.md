@@ -163,7 +163,7 @@ score (from `algebraic_range.formula_complexity`):
 ```python
 transcendental_range(0, 8, Rational(1, 2), generators_domain='algebraics',
                      formula_complexity_threshold=5)
-# 18 simple elements, against 382 with the default infinite threshold
+# 14 simple elements, against 382 with the default infinite threshold
 ```
 
 ### working_precision

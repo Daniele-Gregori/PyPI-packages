@@ -18,7 +18,7 @@ The WL tests draw unseeded random arguments; here every test seeds its own
 generator so runs are reproducible.
 
 This randomized suite runs locally (it is skipped on CI, where the
-deterministic ``test_documentation_examples.py`` runs instead).
+deterministic ``test_deterministic.py`` runs instead).
 """
 
 import os
@@ -31,7 +31,7 @@ from sympy import E, Rational, N
 pytestmark = pytest.mark.skipif(
     os.environ.get("CI") == "true",
     reason="randomized TimeConstrained suite is run locally; "
-           "CI runs test_documentation_examples.py")
+           "CI runs test_deterministic.py")
 
 from transcendental_range import (
     transcendental_range,

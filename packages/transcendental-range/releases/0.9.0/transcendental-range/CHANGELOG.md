@@ -27,7 +27,7 @@ version **1.1.0** (the previous 0.8.x port followed version 1.0.0).
   `$Aborted` instead of stalling the suite; the randomized rounds are two
   per method instead of the notebook's five.
 - `FareyStepError` exception (WL `failureFareyStep`).
-- Deterministic CI suite `tests/test_documentation_examples.py`
+- Deterministic CI suite `tests/test_deterministic.py`
   (documentation examples with exact expected outputs, fixed
   default-vs-naive comparisons for every method): the randomized
   TimeConstrained suite is skipped on CI and run locally, and the GitHub

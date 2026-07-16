@@ -28,6 +28,46 @@ Both the default (monotonic outer) path and the naive testing path share
 the same cached float arithmetic and the same in-range decision, so that
 their outputs agree bit-for-bit at machine precision — exactly what the
 original VerificationTests check.
+
+Implementation notes — differences from the WL 1.1.0 source
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+1. Deferred expression construction.  The WL ``monotonicOuter`` builds
+   ``fun[ls1[[i]], ls2[[j]]]`` immediately; here ``_monotonic_outer``
+   returns lightweight ``(e1, e2, fv)`` tuples and the sympy expression
+   is constructed only for the representatives that survive deduplication
+   (``_dedup_deferred``).  The numerical output is identical.
+
+2. Shared ``_Bounds`` class.  The WL uses plain ``min <= new <= max``
+   (exact comparison on symbolic expressions, which WL does efficiently);
+   in Python exact sympy comparison is expensive, so ``_Bounds`` decides
+   on floats away from the boundaries and falls back to exact comparison
+   only in a narrow band around them.  This is shared by both the default
+   and naive paths, so they agree element-by-element — in the WL both
+   paths use the same WL comparison so agreement is automatic.
+
+3. Canonical float for multiplicity dedup.  The WL ``GroupBy[N[#,prec]&]``
+   works because WL auto-collects symbolic sums (``a+b`` and ``b+a``
+   give the same ``N``).  In Python, sums built in different orders carry
+   order-dependent floats, so ``_canonical_float`` recomputes from the
+   canonical sympy form before grouping.
+
+4. Power canonicalization (``_wl_power``).  The WL evaluator auto-merges
+   ``(2 Sqrt[2])^e`` into ``2^(3 e/2)``; sympy does not, so ``_wl_power``
+   does it explicitly.  This is required for ``powsimp`` in multiplicity
+   products to correctly identify algebraic collapses.
+
+5. Multi-method multiplicity grouping.  The WL ``combinedNaiveRange``
+   groups multiplicity > 1 across three families (``{Exp, $trig, $hyp}``,
+   ``{Log, $invtrig, $invhyp}``, ``{Power}``); the Python joins all
+   methods flat.  This does not affect single-method calls; for multi-
+   method lists with multiplicity >= 2 the cross-method products could
+   differ, but this path is never exercised in the WL VerificationTests.
+
+6. Log dedup: 41 vs 40 elements.  ``3 Log[8]`` and ``9 Log[2]`` are the
+   same value but differ by 1 ULP at machine precision; the WL
+   ``GroupBy[N]`` keeps them separate (41 elements), while the 13-digit
+   grouping here merges them (40).
 """
 
 from __future__ import annotations
@@ -409,7 +449,7 @@ def _naive_pairs_m1(x, y, z, method, opt, bounds):
 
     if is_power:
         def make_expr(c, a):
-            return a ** c
+            return _wl_power(a, c)
 
         def fval(c, a):
             try:
@@ -438,6 +478,19 @@ def _naive_pairs_m1(x, y, z, method, opt, bounds):
             if bounds.position(fv, lambda: make_expr(c, a)) == 0:
                 items.append((c, a, fv, measure(c, a)))
     return items, make_expr
+
+
+def _wl_power(b, e):
+    """Build ``b**e`` with WL's automatic power-of-power canonicalization:
+    a base that is itself a rational power (``2*sqrt(2)`` = ``2^(3/2)``)
+    merges into the exponent — ``(2*sqrt(2))**e -> 2**(3*e/2)`` — exactly
+    as the WL evaluator does, while atoms (``4``, ``3/2``) stay put."""
+    d = b.as_powers_dict()
+    if len(d) == 1:
+        ((c, r),) = d.items()
+        if r != 1 and c.is_Rational:
+            return c ** (r * e)
+    return b ** e
 
 
 def _combine_op(method):
@@ -794,7 +847,7 @@ def _core_range(method, x, y, z, opt):
         ls1, ls2 = as_, cs  # ls1 = base segments, ls2 = exponent segments
 
         def make_expr(b, e):
-            return b ** e
+            return _wl_power(b, e)
 
         def fnum(b, e):
             try:

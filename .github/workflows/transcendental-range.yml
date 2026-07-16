@@ -37,8 +37,5 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      # The randomized TimeConstrained suite (test_transcendental_range.py)
-      # is skipped on CI and run locally; CI runs the deterministic
-      # documentation-example suite.
       - name: Run tests
-        run: pytest tests/test_documentation_examples.py -v
+        run: pytest tests/test_deterministic.py -v
