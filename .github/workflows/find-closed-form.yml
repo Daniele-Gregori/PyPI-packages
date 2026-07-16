@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - "packages/find-closed-form/**"
+      - "packages/algebraic-range/src/**"
+      - "packages/transcendental-range/src/**"
       - ".github/workflows/find-closed-form.yml"
   pull_request:
     paths:
       - "packages/find-closed-form/**"
+      - "packages/algebraic-range/src/**"
+      - "packages/transcendental-range/src/**"
       - ".github/workflows/find-closed-form.yml"
   workflow_dispatch:
 
@@ -36,6 +40,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+
+      # The search-range packages are installed from the local tree until
+      # they are published; transcendental-range needs Python >= 3.10.
+      - name: Install search-range packages (local)
+        run: pip install ../algebraic-range
+      - name: Install transcendental-range (local, Python >= 3.10)
+        if: matrix.python-version != '3.9'
+        run: pip install ../transcendental-range
 
       - name: Run tests
         run: pytest -v -k "not WolframCrossValidation"

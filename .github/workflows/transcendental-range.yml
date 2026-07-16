@@ -3,9 +3,11 @@ name: transcendental-range
 on:
   push:
     paths:
+      - "packages/transcendental-range/**"
       - ".github/workflows/transcendental-range.yml"
   pull_request:
     paths:
+      - "packages/transcendental-range/**"
       - ".github/workflows/transcendental-range.yml"
   workflow_dispatch:
 
@@ -35,5 +37,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # The randomized TimeConstrained suite (test_transcendental_range.py)
+      # is skipped on CI and run locally; CI runs the deterministic
+      # documentation-example suite.
       - name: Run tests
-        run: pytest -v
+        run: pytest tests/test_documentation_examples.py -v
