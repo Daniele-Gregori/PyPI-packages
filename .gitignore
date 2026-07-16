@@ -1,3 +1,8 @@
+
+# backup
+
+*.bak
+
 # macOS
 .DS_Store
 
