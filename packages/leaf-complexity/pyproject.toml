@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leaf-complexity"
+version = "0.7.0"
+description = "Compute a sum or other complexity measure over all atoms of a symbolic expression"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Daniele Gregori", email = "dangregori@gmail.com" },
+]
+maintainers = [
+    { name = "Daniele Gregori", email = "dangregori@gmail.com" },
+]
+keywords = [
+    "complexity",
+    "measure",
+    "tree",
+    "leaf",
+    "leaves",
+    "total",
+    "leaf-complexity",
+    "algebraic",
+    "expression-tree",
+    "symbolic",
+    "sympy",
+    "simplification",
+    "mathematics",
+    "wolfram",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Education",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+dependencies = [
+    "sympy>=1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/leaf-complexity"
+Repository = "https://github.com/Daniele-Gregori/PyPI-packages/tree/main/packages/leaf-complexity"
+Issues = "https://github.com/Daniele-Gregori/PyPI-packages/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
