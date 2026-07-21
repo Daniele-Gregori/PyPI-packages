@@ -14,6 +14,8 @@ Packages currently hosted on the Python Package Index (PyPI):
 
 * [gallop-search](https://pypi.org/project/gallop-search/): binary search from an arbitrary position in sorted sequences;
 
+* [leaf-complexity](https://pypi.org/project/leaf-complexity/): compute a complexity measure over all atoms of a symbolic expression;
+
 * [partition-while](https://pypi.org/project/partition-while/): partition a list by a condition on the sublists;
 
 * [spreadsheet-toolkit](https://pypi.org/project/spreadsheet-toolkit/): tools and utilities for spreadsheet analysis;

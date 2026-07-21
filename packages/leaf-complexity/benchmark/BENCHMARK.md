@@ -6,13 +6,13 @@ The Python `leaf_complexity` is a faithful port of the Wolfram Language resource
 
 | Case | Expression | WL (ms) | Python (ms) | WL speed-up |
 |---|---|---:|---:|---:|
-| small | `(x + 2)/(y - 2)` | 0.0179 | 0.0382 | 2.1× |
-| medium | `(2 x^(1/3) + I)/(x - 2 - 3 I) - 5/x^2` | 0.0469 | 0.120 | 2.6× |
-| poly-2var-15 | `Expand[(x + y + 1)^15]` (136 terms) | 1.43 | 3.64 | 2.5× |
-| poly-3var-12 | `Expand[(x + y + z + 1)^12]` (455 terms) | 5.76 | 15.8 | 2.7× |
-| nested-table | `Table[{i, j, i/j}, {i, 20}, {j, 20}]` | 3.39 | 6.05 | 1.8× |
-| poly-2var-15-scaled | poly-2var-15 with `f = Log[1. + Abs[#]]&` | 2.73 | 8.89 | 3.3× |
-| poly-2var-15-proper | poly-2var-15 with `Heads -> False` | 1.12 | 3.17 | 2.8× |
+| small | `(x + 2)/(y - 2)` | 0.0175 | 0.0382 | 2.2× |
+| medium | `(2 x^(1/3) + I)/(x - 2 - 3 I) - 5/x^2` | 0.0465 | 0.120 | 2.6× |
+| poly-2var-15 | `Expand[(x + y + 1)^15]` (136 terms) | 1.44 | 3.64 | 2.5× |
+| poly-3var-12 | `Expand[(x + y + z + 1)^12]` (455 terms) | 5.60 | 15.8 | 2.8× |
+| nested-table | `Table[{i, j, i/j}, {i, 20}, {j, 20}]` | 3.27 | 6.05 | 1.8× |
+| poly-2var-15-scaled | poly-2var-15 with `f = Log[1. + Abs[#]]&` | 2.70 | 8.89 | 3.3× |
+| poly-2var-15-proper | poly-2var-15 with `Heads -> False` | 1.11 | 3.17 | 2.8× |
 
 **The Wolfram kernel is roughly 2–3× faster (geometric mean ≈ 2.5×).** This is the same pattern as the `farey` package and the opposite of `spreadsheet-toolkit`: the work here is a pure recursive tree scan with exact arithmetic — there is no parsing hot-path for Python's compiled regex engine to exploit, so the compiled Wolfram evaluator's constant factors win.
 
@@ -35,7 +35,7 @@ The gap is smallest on the nested table (where SymPy `Rational` decomposition is
 ## Environment
 
 - Intel Core i9-9980HK @ 2.40 GHz (x86_64), macOS
-- Wolfram Language 14.3, `LeafComplexity` 1.0.0 definitions
+- Wolfram Language 14.3, `LeafComplexity` 1.0.0 (loaded from `wolfram/LeafComplexity-1-0-0-kernel.wl`)
 - Python 3.14.2, leaf-complexity 0.7.0, SymPy 1.14.0
 
 ## Reproducing
