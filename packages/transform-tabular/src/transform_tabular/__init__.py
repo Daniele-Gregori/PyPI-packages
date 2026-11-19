@@ -1,20 +1,31 @@
-"""transform_tabular: Transform columns of pandas DataFrames.
+"""transform_tabular: transform columns and rows of pandas DataFrames.
 
-Python translation of the Wolfram Language ResourceFunction TransformTabular.
-Provides element-wise, column-aggregate (ColumnwiseValue), and column-threaded
-(ColumnwiseThread) operations on DataFrame columns.
+Python translation of the Wolfram Language resource functions TransformTabular and
+TransformRows, and of the built-in function TransformColumns:
+
+* ``transform_tabular`` applies one function to every element of all columns, or of a
+  selection of them;
+* ``transform_columns`` modifies existing columns or adds new ones, row by row;
+* ``transform_rows`` transforms only a selection of rows.
+
+All of them support column aggregates (``ColumnwiseValue``) and column-threaded
+operations (``ColumnwiseThread``).
 """
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 from .core import (
-    ColumnwiseValue,
     ColumnwiseThread,
+    ColumnwiseValue,
+    transform_columns,
+    transform_rows,
     transform_tabular,
 )
 
 __all__ = [
-    "ColumnwiseValue",
     "ColumnwiseThread",
+    "ColumnwiseValue",
+    "transform_columns",
+    "transform_rows",
     "transform_tabular",
 ]
