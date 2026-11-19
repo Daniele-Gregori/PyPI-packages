@@ -18,7 +18,7 @@ Two markers bring whole columns into any of these transformations:
 - **`ColumnwiseValue(func)`** stands for a value computed once from a whole column, such as a mean or a maximum;
 - **`ColumnwiseThread(func)`** stands for a column computed once from a whole column, such as a sort or a cumulative sum, whose elements are matched to the rows.
 
-This package is a Python port of the Wolfram Language resource functions [`TransformTabular`](https://resources.wolframcloud.com/FunctionRepository/resources/TransformTabular/) and `TransformRows`, and of the built-in function [`TransformColumns`](https://reference.wolfram.com/language/ref/TransformColumns.html).
+This package is a Python port of the Wolfram Language resource functions [`TransformTabular`](https://resources.wolframcloud.com/FunctionRepository/resources/TransformTabular/) and [`TransformRows`](https://resources.wolframcloud.com/FunctionRepository/resources/TransformRows/), and of the built-in function [`TransformColumns`](https://reference.wolfram.com/language/ref/TransformColumns.html).
 
 
 ## Installation
@@ -416,7 +416,7 @@ See [CHANGELOG.md](https://github.com/Daniele-Gregori/PyPI-packages/blob/main/pa
 
 ## See also
 
-For further examples and details, see the documentation of the original Wolfram Language functions: [TransformTabular](https://resources.wolframcloud.com/FunctionRepository/resources/TransformTabular/) (resource function contributed by the same author) and [TransformColumns](https://reference.wolfram.com/language/ref/TransformColumns.html).
+For further examples and details, see the documentation of the original Wolfram Language functions: [TransformTabular](https://resources.wolframcloud.com/FunctionRepository/resources/TransformTabular/) and [TransformRows](https://resources.wolframcloud.com/FunctionRepository/resources/TransformRows/) (resource functions contributed by the same author), and [TransformColumns](https://reference.wolfram.com/language/ref/TransformColumns.html).
 
 ## Author
 
